@@ -14,6 +14,8 @@ use crate::{
     utils::{VectorArray, resolve_index_unchecked},
 };
 
+use mlx_internal_macros::default_device;
+
 use super::{
     ArrayIndex, ArrayIndexOp, Ellipsis, Guarded, NewAxis, RangeIndex, StrideBy, TryIndexOp,
 };
@@ -697,12 +699,17 @@ where
     }
 }
 
-// Implement private bindings
 impl Array {
-    // This is exposed in the c api but not found in the swift or python api
-    //
-    // Thie is not the same as rust slice. Slice in python is more like `StepBy` iterator in rust
-    pub(crate) fn slice_device(
+    /// Extract a strided sub-array.
+    ///
+    /// This is exposed in the C api but not found in the Swift or Python api.
+    ///
+    /// This is not the same as a Rust slice. Slicing here is more like a
+    /// `StepBy` iterator in Rust: `start`, `stop`, and `strides` each hold one
+    /// entry per axis of `self`, selecting elements from `start[axis]` up to
+    /// `stop[axis]` stepping by `strides[axis]`.
+    #[default_device]
+    pub fn slice_device(
         &self,
         start: &[i32],
         stop: &[i32],
@@ -1504,5 +1511,50 @@ mod tests {
             (..).stride_by(2),
         ));
         check(result, &[3, 2, 2, 3, 1, 2], 17460);
+    }
+
+    #[test]
+    fn test_slice_contiguous() {
+        let a = Array::from_iter(0i32..10, &[10]);
+
+        let s = a.slice(&[2], &[8], &[1]).unwrap();
+
+        assert_eq!(s.shape(), &[6]);
+        let expected = Array::from_slice(&[2, 3, 4, 5, 6, 7], &[6]);
+        assert_array_eq!(s, expected, 0.01);
+    }
+
+    #[test]
+    fn test_slice_strided() {
+        let a = Array::from_iter(0i32..10, &[10]);
+
+        let s = a.slice(&[2], &[8], &[2]).unwrap();
+
+        assert_eq!(s.shape(), &[3]);
+        let expected = Array::from_slice(&[2, 4, 6], &[3]);
+        assert_array_eq!(s, expected, 0.01);
+    }
+
+    #[test]
+    fn test_slice_multi_axis() {
+        let a = Array::from_iter(0i32..12, &[3, 4]);
+
+        let s = a.slice(&[0, 1], &[2, 3], &[1, 1]).unwrap();
+
+        assert_eq!(s.shape(), &[2, 2]);
+        let expected = Array::from_slice(&[1, 2, 5, 6], &[2, 2]);
+        assert_array_eq!(s, expected, 0.01);
+    }
+
+    #[test]
+    fn test_slice_device_explicit_stream() {
+        use crate::Stream;
+
+        let a = Array::from_iter(0i32..10, &[10]);
+
+        let s = a.slice_device(&[2], &[8], &[2], Stream::gpu()).unwrap();
+
+        let expected = Array::from_slice(&[2, 4, 6], &[3]);
+        assert_array_eq!(s, expected, 0.01);
     }
 }
