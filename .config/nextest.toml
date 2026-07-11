@@ -1,0 +1,16 @@
+# nextest profiles that split the ignored, hardware-gated tests into two
+# runners. Benchmarks (every `bench_*` fn, all under the `benchmarks` module)
+# are timing scratchpads with no assertions; integration tests verify behavior
+# against real models. Both are `#[ignore]`, so pass `--run-ignored all`.
+#
+#   cargo nextest run -P integration --run-ignored all   # integration only
+#   cargo nextest run -P bench        --run-ignored all   # benchmarks only
+#
+# The default profile is unchanged: a plain `cargo nextest run` still runs the
+# fast unit tests and skips everything ignored.
+
+[profile.integration]
+default-filter = 'not test(/bench_/)'
+
+[profile.bench]
+default-filter = 'test(/bench_/)'

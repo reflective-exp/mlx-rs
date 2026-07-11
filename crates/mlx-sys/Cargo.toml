@@ -1,0 +1,27 @@
+[package]
+name = "mlx-sys"
+description = "Low-level interface and binding generation for the mlx library"
+readme = "README.md"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[package.metadata.docs.rs]
+targets = [
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+]
+
+[features]
+default = ["accelerate", "metal"]
+
+accelerate = []
+metal = []
+
+[dependencies]
+
+[build-dependencies]
+bindgen.workspace = true
+cmake.workspace = true
+cc.workspace = true
