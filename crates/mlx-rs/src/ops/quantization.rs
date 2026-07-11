@@ -1,3 +1,5 @@
+use std::ffi::CStr;
+
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{
@@ -6,9 +8,49 @@ use crate::{
     utils::{VectorArray, guard::Guarded},
 };
 
-const DEFAULT_MODE_STR: &str = "affine";
 const DEFAULT_GROUP_SIZE: i32 = 64;
 const DEFAULT_BITS: i32 = 4;
+
+/// The quantization scheme used by [`quantize`], [`dequantize`], [`quantized_matmul`],
+/// [`gather_qmm`], and [`qqmm`].
+///
+/// See the [MLX
+/// documentation](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.quantize.html)
+/// for details on each mode. The `mx`/`nv` modes require a fixed group size (32 for `mxfp4`/`mxfp8`,
+/// 16 for `nvfp4`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QuantizationMode {
+    /// Affine quantization with per-group scales and biases. The default.
+    #[default]
+    Affine,
+
+    /// Microscaling 4-bit floating point (E2M1). Requires a group size of 32.
+    Mxfp4,
+
+    /// Microscaling 8-bit floating point (E4M3). Requires a group size of 32.
+    Mxfp8,
+
+    /// NVIDIA 4-bit floating point. Requires a group size of 16.
+    Nvfp4,
+}
+
+impl From<QuantizationMode> for &'static CStr {
+    /// The null-terminated C string MLX expects for this mode.
+    fn from(mode: QuantizationMode) -> Self {
+        match mode {
+            QuantizationMode::Affine => c"affine",
+            QuantizationMode::Mxfp4 => c"mxfp4",
+            QuantizationMode::Mxfp8 => c"mxfp8",
+            QuantizationMode::Nvfp4 => c"nvfp4",
+        }
+    }
+}
+
+/// Resolve an optional [`QuantizationMode`] to its C string, defaulting to
+/// [`QuantizationMode::Affine`].
+fn resolve_mode(mode: Option<QuantizationMode>) -> &'static CStr {
+    mode.unwrap_or_default().into()
+}
 
 /// Helper to convert Option<i32> to mlx_optional_int
 fn optional_int(value: Option<i32>, default: i32) -> mlx_sys::mlx_optional_int {
@@ -49,14 +91,13 @@ pub fn quantize_device<'a>(
     w: impl AsRef<Array>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] global_scale: impl Into<Option<&'a Array>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<(Array, Array, Array)> {
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
-    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
-        .expect("Invalid mode string");
+    let mode = resolve_mode(mode.into());
     let global_scale = global_scale.into();
 
     let result = VectorArray::try_from_op(|res| unsafe {
@@ -103,14 +144,13 @@ pub fn quantized_matmul_device<'a>(
     #[optional] transpose: impl Into<Option<bool>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let transpose = transpose.into().unwrap_or(false);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
-    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
-        .expect("Invalid mode string");
+    let mode = resolve_mode(mode.into());
     let biases = biases.into();
 
     <Array as Guarded>::try_from_op(|res| unsafe {
@@ -145,14 +185,13 @@ pub fn dequantize_device<'a>(
     #[optional] biases: impl Into<Option<&'a Array>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] global_scale: impl Into<Option<&'a Array>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
-    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
-        .expect("Invalid mode string");
+    let mode = resolve_mode(mode.into());
     let biases = biases.into();
     let global_scale = global_scale.into();
 
@@ -207,15 +246,14 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
     #[optional] transpose: impl Into<Option<bool>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<&'b str>>,
+    #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] sorted_indices: impl Into<Option<bool>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let transpose = transpose.into().unwrap_or(true);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
-    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
-        .expect("Invalid mode string");
+    let mode = resolve_mode(mode.into());
     let sorted = sorted_indices.into().unwrap_or(false);
 
     unsafe {
@@ -267,7 +305,8 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
 /// - `w_scales`: Optional scales for the quantized weights (required if `w` is already quantized)
 /// - `group_size`: The quantization group size (default depends on mode: 16 for nvfp4, 32 for mxfp8)
 /// - `bits`: The number of bits per element (default depends on mode: 4 for nvfp4, 8 for mxfp8)
-/// - `mode`: Quantization mode - either "nvfp4" or "mxfp8" (default: "nvfp4")
+/// - `mode`: Quantization mode - either [`QuantizationMode::Nvfp4`] or [`QuantizationMode::Mxfp8`]
+///   (default: `Nvfp4`)
 #[cfg(not(target_os = "macos"))]
 #[allow(clippy::too_many_arguments)]
 #[generate_macro]
@@ -278,21 +317,20 @@ pub fn qqmm_device<'a>(
     #[optional] w_scales: impl Into<Option<&'a Array>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    let mode_str = mode.into().unwrap_or("nvfp4");
-    let mode_cstr = std::ffi::CString::new(mode_str).expect("Invalid mode string");
+    let mode = mode.into().unwrap_or(QuantizationMode::Nvfp4);
 
     // Defaults depend on mode
-    let (default_group_size, default_bits) = match mode_str {
-        "nvfp4" => (16, 4),
-        "mxfp8" => (32, 8),
-        _ => (16, 4), // fallback to nvfp4 defaults
+    let (default_group_size, default_bits) = match mode {
+        QuantizationMode::Mxfp8 => (32, 8),
+        _ => (16, 4), // nvfp4 defaults
     };
 
     let group_size = optional_int(group_size.into(), default_group_size);
     let bits = optional_int(bits.into(), default_bits);
+    let mode: &CStr = mode.into();
 
     <Array as Guarded>::try_from_op(|res| unsafe {
         mlx_sys::mlx_qqmm(
@@ -305,7 +343,7 @@ pub fn qqmm_device<'a>(
                 .unwrap_or(mlx_sys::mlx_array_new()),
             group_size,
             bits,
-            mode_cstr.as_ptr(),
+            mode.as_ptr(),
             stream.as_ref().as_ptr(),
         )
     })
@@ -313,11 +351,28 @@ pub fn qqmm_device<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::QuantizationMode;
     use crate::{
         Array,
         ops::{dequantize, expand_dims, quantize, quantized_matmul},
         random,
     };
+    use std::ffi::CStr;
+
+    #[test]
+    fn test_quantization_mode_c_str() {
+        let cases = [
+            (QuantizationMode::Affine, c"affine"),
+            (QuantizationMode::Mxfp4, c"mxfp4"),
+            (QuantizationMode::Mxfp8, c"mxfp8"),
+            (QuantizationMode::Nvfp4, c"nvfp4"),
+        ];
+        for (mode, expected) in cases {
+            let c: &CStr = mode.into();
+            assert_eq!(c, expected);
+        }
+        assert_eq!(QuantizationMode::default(), QuantizationMode::Affine);
+    }
 
     #[test]
     fn test_quantize_dequantize() {

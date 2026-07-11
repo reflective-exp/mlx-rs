@@ -102,7 +102,7 @@ impl Quantizable for Linear {
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: crate::ops::QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         QuantizedLinear::try_from_linear(self, group_size, bits, mode)
     }

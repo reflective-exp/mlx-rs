@@ -78,7 +78,7 @@ fn impl_quantizable_module_for_struct(
                     self,
                     group_size: i32,
                     bits: i32,
-                    mode: &str,
+                    mode: #root::ops::QuantizationMode,
                 ) -> Result<Self::Quantized, Self::QuantizationError> {
                     Ok(Self {
                         #(

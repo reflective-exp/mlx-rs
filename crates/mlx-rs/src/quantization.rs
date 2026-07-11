@@ -1,6 +1,7 @@
 //! Traits for quantization
 
 use crate::module::{Module, ModuleParameters};
+use crate::ops::QuantizationMode;
 
 /// Trait for quantization of modules.
 pub trait Quantizable {
@@ -11,7 +12,7 @@ pub trait Quantizable {
     const DEFAULT_BITS: i32 = 4;
 
     /// The default quantization mode.
-    const DEFAULT_MODE: &'static str = "affine";
+    const DEFAULT_MODE: QuantizationMode = QuantizationMode::Affine;
 
     /// The quantized type.
     type Quantized;
@@ -20,14 +21,11 @@ pub trait Quantizable {
     type QuantizationError;
 
     /// Quantize the module with the specified group size, number of bits, and quantization mode.
-    ///
-    /// `mode` selects the quantization scheme (e.g. `"affine"`, `"mxfp4"`). See the MLX
-    /// documentation for the supported modes.
     fn try_into_quantized(
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError>;
 }
 
@@ -43,7 +41,7 @@ where
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         self.into_iter()
             .map(|m| m.try_into_quantized(group_size, bits, mode))
@@ -63,7 +61,7 @@ where
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         (*self)
             .try_into_quantized(group_size, bits, mode)
@@ -83,7 +81,7 @@ where
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         match self {
             Some(m) => m.try_into_quantized(group_size, bits, mode).map(Some),
@@ -116,7 +114,7 @@ where
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: QuantizationMode,
     ) -> Result<Self, Self::QuantizationError> {
         match self {
             MaybeQuantized::Original(m) => {

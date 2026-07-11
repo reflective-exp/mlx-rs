@@ -56,7 +56,7 @@ impl Quantizable for Embedding {
         self,
         group_size: i32,
         bits: i32,
-        mode: &str,
+        mode: crate::ops::QuantizationMode,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         QuantizedEmbedding::try_from_embedding(self, group_size, bits, mode)
     }
