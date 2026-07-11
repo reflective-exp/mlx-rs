@@ -84,6 +84,12 @@ impl Array {
         at_least_3d_device(self, stream)
     }
 
+    /// See [`contiguous`]
+    #[default_device]
+    pub fn contiguous_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+        contiguous_device(self, stream)
+    }
+
     /// See [`move_axis`]
     #[default_device]
     pub fn move_axis_device(
@@ -976,6 +982,45 @@ pub fn transpose_device(
     })
 }
 
+/// Returns a contiguous array with the same data as the input.
+///
+/// If the array is already contiguous, it is returned as-is. Otherwise,
+/// a new contiguous array is created with the data copied.
+///
+/// This is useful when you need to call `as_slice()` on an array that may
+/// have non-contiguous strides (e.g., after `index()` or `transpose_axes()`).
+///
+/// # Params
+///
+/// - `a`: The input array.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let x = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+/// let t = transpose(&x).unwrap();
+/// let c = contiguous(&t).unwrap();
+/// // Now c is guaranteed to be contiguous and safe to use with as_slice()
+/// assert!(c.is_contiguous());
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn contiguous_device(
+    a: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_contiguous(
+            res,
+            a.as_ref().as_ptr(),
+            false, // allow_col_major
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 // The unit tests below are adapted from
 // https://github.com/ml-explore/mlx/blob/main/tests/ops_tests.cpp
 #[cfg(test)]
@@ -1459,5 +1504,27 @@ mod tests {
         x = transpose_axes(&x, &[2, 1, 0, 3][..]).unwrap();
         x.eval().unwrap();
         // assert!(x.flags().row_contiguous);
+    }
+
+    #[test]
+    fn test_contiguous() {
+        // A freshly created array is contiguous.
+        let x = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+        assert!(x.is_contiguous());
+
+        // Transpose swaps strides, producing a non-contiguous view.
+        let t = transpose(&x).unwrap();
+        t.eval().unwrap();
+        assert!(!t.is_contiguous());
+
+        // contiguous() copies into row-major memory.
+        let c = contiguous(&t).unwrap();
+        c.eval().unwrap();
+        assert!(c.is_contiguous());
+        assert_eq!(c.shape(), &[3, 2]);
+
+        // Values match the transposed logical order, now laid out contiguously.
+        let data: &[i32] = c.try_as_slice().unwrap();
+        assert_eq!(data, &[1, 4, 2, 5, 3, 6]);
     }
 }

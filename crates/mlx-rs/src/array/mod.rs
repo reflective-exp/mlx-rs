@@ -248,6 +248,49 @@ impl Array {
         }
     }
 
+    /// Check if the array is contiguous in memory (row-major/C-style).
+    ///
+    /// An array is contiguous if it can be accessed as a flat slice without gaps
+    /// or out-of-order elements. Operations like `index()` and `transpose_axes()`
+    /// create strided views that are NOT contiguous.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    ///
+    /// let arr = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+    /// assert!(arr.is_contiguous());
+    /// ```
+    pub fn is_contiguous(&self) -> bool {
+        let shape = self.shape();
+        let strides = self.strides();
+        let ndim = self.ndim();
+
+        if ndim == 0 {
+            return true;
+        }
+
+        // Row-major (C-style) contiguous: the last axis has stride 1 and each
+        // earlier axis has stride equal to the product of the shapes after it.
+        // Axes of size 0 or 1 carry no positional information, so any stride is
+        // acceptable there.
+        let mut expected_stride: usize = 1;
+        for i in (0..ndim).rev() {
+            if shape[i] <= 1 {
+                expected_stride *= shape[i].max(1) as usize;
+                continue;
+            }
+
+            if strides[i] != expected_stride {
+                return false;
+            }
+            expected_stride *= shape[i] as usize;
+        }
+
+        true
+    }
+
     /// The number of bytes in the array.
     pub fn nbytes(&self) -> usize {
         unsafe { mlx_sys::mlx_array_nbytes(self.as_ptr()) }
