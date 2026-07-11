@@ -320,7 +320,7 @@ fn build_group_norm(builder: GroupNormBuilder) -> Result<GroupNorm, Exception> {
     Ok(GroupNorm {
         group_count: builder.group_count,
         dimensions: builder.dimensions,
-        eps: array!(eps),
+        eps,
         pytorch_compatible,
         weight: Param::new(weight),
         bias: Param::new(bias),
@@ -343,7 +343,7 @@ pub struct GroupNorm {
     pub dimensions: i32,
 
     /// Value added to the denominator for numerical stability.
-    pub eps: Array,
+    pub eps: f32,
 
     /// If `true`, perform the group normalization in the same order/grouping as PyTorch.
     pub pytorch_compatible: bool,
@@ -380,7 +380,7 @@ impl GroupNorm {
             .reshape(&[batch, self.group_count, -1])?;
 
         // Normalize
-        let x = crate::fast::layer_norm(x, None, None, self.eps.item::<f32>())?;
+        let x = crate::fast::layer_norm(x, None, None, self.eps)?;
 
         let x = x.reshape(&[batch, self.group_count, -1, group_size])?;
 
@@ -401,7 +401,7 @@ impl GroupNorm {
         let x = x.reshape(&[batch, -1, self.group_count])?;
 
         // Normalize
-        let x = instance_norm(&x, &[1], &self.eps)?;
+        let x = instance_norm(&x, &[1], &array!(self.eps))?;
 
         let new_shape: Vec<_> = [batch]
             .into_iter()
@@ -764,6 +764,27 @@ mod tests {
             result.sum(None).unwrap().item::<f32>(),
             -0.873_704_3,
             abs <= 0.017_474_087
+        );
+    }
+
+    #[test]
+    fn test_group_norm_pytorch_compatible() {
+        crate::random::seed(855).unwrap();
+        let a = crate::random::uniform::<_, f32>(0.0, 1.0, &[2, 8, 16], None).unwrap();
+        let mut group_norm = GroupNorm::new(4, 16).unwrap();
+        group_norm.pytorch_compatible = true;
+        let result = group_norm.forward(&a).unwrap().index((0, 0));
+        assert_eq!(result.shape(), &[16]);
+        assert_eq!(result.dtype(), Dtype::Float32);
+        assert_float_eq!(
+            result.mean(None).unwrap().item::<f32>(),
+            -0.042_667_97,
+            abs <= 0.000_853_359_4
+        );
+        assert_float_eq!(
+            result.sum(None).unwrap().item::<f32>(),
+            -0.682_687_5,
+            abs <= 0.013_653_75
         );
     }
 
