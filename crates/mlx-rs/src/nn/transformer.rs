@@ -4,8 +4,9 @@ use crate::{
     Array, ArrayElement, FromScalar, array,
     builder::Builder,
     error::Exception,
+    fast::{ScaledDotProductAttentionMask, scaled_dot_product_attention},
     module::{Module, UnaryModule},
-    ops::{arange, expand_dims, matmul, softmax_axis},
+    ops::{arange, expand_dims},
     quantization::MaybeQuantized,
 };
 use dyn_clone::DynClone;
@@ -233,19 +234,23 @@ where
             .transpose_axes(&[0, 2, 1, 3])?;
         let keys = keys
             .reshape(&[B, S, self.num_heads, -1])?
-            .transpose_axes(&[0, 2, 3, 1])?;
+            .transpose_axes(&[0, 2, 1, 3])?;
         let values = values
             .reshape(&[B, S, self.num_heads, -1])?
             .transpose_axes(&[0, 2, 1, 3])?;
 
         // Dimensions are [batch x num_heads x sequence x hidden_dim]
         let scale = f32::sqrt(1.0 / queries.dim(-1) as f32);
-        let mut scores = (queries * scale).matmul(&keys)?;
-        if let Some(mask) = input.mask {
-            scores = scores.add(mask.as_dtype(scores.dtype(), None)?)?;
-        }
-        scores = softmax_axis(&scores, -1, None)?;
-        let value_hat = matmul(&scores, &values)?
+
+        // The mask is added to the scores inside the fused kernel, so it must
+        // share the query dtype.
+        let mask = input
+            .mask
+            .map(|mask| mask.as_dtype(queries.dtype(), None))
+            .transpose()?;
+        let mask = mask.as_ref().map(ScaledDotProductAttentionMask::from);
+
+        let value_hat = scaled_dot_product_attention(&queries, &keys, &values, scale, mask, None)?
             .transpose_axes(&[0, 2, 1, 3])?
             .reshape(&[B, L, -1])?;
 
@@ -1144,6 +1149,54 @@ where
         <TransformerDecoder as Module<TransformerDecoderInput>>::training_mode(
             &mut self.decoder,
             mode,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::random::{seed, uniform};
+    use float_eq::assert_float_eq;
+
+    #[test]
+    fn test_multi_head_attention() {
+        seed(101).unwrap();
+        let x = uniform::<_, f32>(0.0, 1.0, &[2, 8, 16], None).unwrap();
+        let mut attention = MultiHeadAttention::new(16, 4).unwrap();
+        let result = attention.forward((&x, &x, &x)).unwrap();
+        assert_eq!(result.shape(), &[2, 8, 16]);
+        assert_eq!(result.dtype(), crate::Dtype::Float32);
+        assert_float_eq!(
+            result.mean(None).unwrap().item::<f32>(),
+            -0.033_780_828,
+            abs <= 0.000_675_616_6
+        );
+        assert_float_eq!(
+            result.sum(None).unwrap().item::<f32>(),
+            -8.647_892,
+            abs <= 0.172_957_84
+        );
+    }
+
+    #[test]
+    fn test_multi_head_attention_with_mask() {
+        seed(102).unwrap();
+        let x = uniform::<_, f32>(0.0, 1.0, &[2, 8, 16], None).unwrap();
+        let mask = MultiHeadAttention::create_additive_causal_mask::<f32>(8).unwrap();
+        let mut attention = MultiHeadAttention::new(16, 4).unwrap();
+        let result = attention.forward((&x, &x, &x, &mask)).unwrap();
+        assert_eq!(result.shape(), &[2, 8, 16]);
+        assert_eq!(result.dtype(), crate::Dtype::Float32);
+        assert_float_eq!(
+            result.mean(None).unwrap().item::<f32>(),
+            -0.019_231_573,
+            abs <= 0.000_384_631_46
+        );
+        assert_float_eq!(
+            result.sum(None).unwrap().item::<f32>(),
+            -4.923_282_6,
+            abs <= 0.098_465_65
         );
     }
 }
