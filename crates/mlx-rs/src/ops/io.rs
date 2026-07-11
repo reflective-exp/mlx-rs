@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::Path;
 
+/// Arrays loaded from a `safetensors` file paired with its `[String:String]` metadata.
+type SafetensorsWithMetadata = (HashMap<String, Array>, HashMap<String, String>);
+
 fn check_file_extension(path: &Path, expected: &str) -> Result<(), IoError> {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some(ext) if ext == expected => Ok(()),
@@ -63,12 +66,11 @@ impl Array {
     ///
     /// - path: path of file to load
     /// - stream: stream or device to evaluate on
-    #[allow(clippy::type_complexity)]
     #[default_device(device = "cpu")]
     pub fn load_safetensors_with_metadata_device(
         path: impl AsRef<Path>,
         stream: impl AsRef<Stream>,
-    ) -> Result<(HashMap<String, Array>, HashMap<String, String>), IoError> {
+    ) -> Result<SafetensorsWithMetadata, IoError> {
         let safetensors = SafeTensors::load_device(path.as_ref(), stream)?;
         let data = safetensors.data()?;
         let metadata = safetensors.metadata()?;

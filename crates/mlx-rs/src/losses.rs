@@ -874,7 +874,6 @@ impl MarginRankingLoss {
 }
 
 #[cfg(test)]
-#[allow(clippy::approx_constant)]
 mod tests {
     use crate::{array, assert_array_eq, builder::Builder, ops::is_nan};
     use float_eq::assert_float_eq;

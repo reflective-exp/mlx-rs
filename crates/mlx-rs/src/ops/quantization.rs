@@ -321,7 +321,6 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
 /// - `mode`: Quantization mode - either [`QuantizationMode::Nvfp4`] or [`QuantizationMode::Mxfp8`]
 ///   (default: `Nvfp4`)
 #[cfg(not(target_os = "macos"))]
-#[allow(clippy::too_many_arguments)]
 #[generate_macro]
 #[default_device]
 pub fn qqmm_device<'a>(
