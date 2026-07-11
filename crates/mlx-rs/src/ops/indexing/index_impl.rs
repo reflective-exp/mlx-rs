@@ -933,7 +933,12 @@ fn get_item<'a>(
     use ArrayIndexOp::*;
 
     match index.index_op() {
-        Ellipsis => Ok(src.deep_clone()),
+        // `arr[...]` is the whole array unchanged. MLX arrays are immutable, so
+        // a refcount-sharing clone matches NumPy/mlx-swift semantics (which
+        // return the same array) without copying the buffer; any later
+        // slice-update on the result sees the shared buffer and copies rather
+        // than donating it.
+        Ellipsis => Ok(src.clone()),
         TakeIndex { index } => get_item_index(src, index, 0, stream),
         TakeArray { indices } => get_item_array(src, &indices, 0, stream),
         TakeArrayRef { indices } => get_item_array(src, indices, 0, stream),

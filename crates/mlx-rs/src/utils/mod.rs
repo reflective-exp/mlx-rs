@@ -16,6 +16,24 @@ pub(crate) const FAILURE: i32 = 1;
 pub(crate) mod guard;
 pub(crate) mod io;
 
+thread_local! {
+    /// A reusable empty `mlx_array` used as the "absent" sentinel for optional
+    /// array arguments in FFI calls. MLX treats a default-constructed (empty)
+    /// array as "no value" and never retains or mutates it, so a single
+    /// per-thread handle can be shared across every call instead of allocating
+    /// (and leaking) a fresh one each time via `mlx_array_new()`.
+    static EMPTY_ARRAY_SENTINEL: Array = unsafe { Array::from_ptr(mlx_sys::mlx_array_new()) };
+}
+
+/// Raw handle of the reusable empty-array sentinel for the current thread.
+///
+/// Use as the `None` branch when passing an optional array to a C API, e.g.
+/// `opt.map(|a| a.as_ptr()).unwrap_or_else(empty_array_ptr)`. The handle stays
+/// valid for the lifetime of the thread; do not free it.
+pub(crate) fn empty_array_ptr() -> mlx_sys::mlx_array {
+    EMPTY_ARRAY_SENTINEL.with(|a| a.as_ptr())
+}
+
 pub(crate) fn resolve_index_signed_unchecked(index: i32, len: i32) -> i32 {
     if index < 0 {
         len.saturating_add(index)
@@ -29,17 +47,6 @@ pub(crate) fn resolve_index_unchecked(index: i32, len: usize) -> usize {
         (len as i32 + index) as usize
     } else {
         index as usize
-    }
-}
-
-/// Helper method to convert an optional slice of axes to a Vec covering all axes.
-pub(crate) fn axes_or_default_to_all<'a>(axes: impl IntoOption<&'a [i32]>, ndim: i32) -> Vec<i32> {
-    match axes.into_option() {
-        Some(axes) => axes.to_vec(),
-        None => {
-            let axes: Vec<i32> = (0..ndim).collect();
-            axes
-        }
     }
 }
 

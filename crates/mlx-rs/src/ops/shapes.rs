@@ -87,7 +87,7 @@ impl Array {
     /// See [`contiguous`]
     #[default_device]
     pub fn contiguous_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
-        contiguous_device(self, stream)
+        contiguous_device(self, false, stream)
     }
 
     /// See [`move_axis`]
@@ -1001,7 +1001,7 @@ pub fn transpose_device(
 ///
 /// let x = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
 /// let t = transpose(&x).unwrap();
-/// let c = contiguous(&t).unwrap();
+/// let c = contiguous(&t, false).unwrap();
 /// // Now c is guaranteed to be contiguous and safe to use with as_slice()
 /// assert!(c.is_contiguous());
 /// ```
@@ -1009,13 +1009,17 @@ pub fn transpose_device(
 #[default_device]
 pub fn contiguous_device(
     a: impl AsRef<Array>,
+    /// If `true`, an array that is already column-major contiguous (e.g. a
+    /// freshly transposed view) is accepted as-is instead of being copied into
+    /// row-major layout.
+    allow_col_major: bool,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_contiguous(
             res,
             a.as_ref().as_ptr(),
-            false, // allow_col_major
+            allow_col_major,
             stream.as_ref().as_ptr(),
         )
     })
@@ -1518,7 +1522,7 @@ mod tests {
         assert!(!t.is_contiguous());
 
         // contiguous() copies into row-major memory.
-        let c = contiguous(&t).unwrap();
+        let c = contiguous(&t, false).unwrap();
         c.eval().unwrap();
         assert!(c.is_contiguous());
         assert_eq!(c.shape(), &[3, 2]);
@@ -1526,5 +1530,12 @@ mod tests {
         // Values match the transposed logical order, now laid out contiguously.
         let data: &[i32] = c.try_as_slice().unwrap();
         assert_eq!(data, &[1, 4, 2, 5, 3, 6]);
+
+        // allow_col_major=true accepts an already-col-contiguous view without
+        // forcing a row-major copy; the logical values are unchanged.
+        let c2 = contiguous(&t, true).unwrap();
+        c2.eval().unwrap();
+        assert_eq!(c2.shape(), &[3, 2]);
+        assert_eq!(c2, t);
     }
 }

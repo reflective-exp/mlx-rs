@@ -14,10 +14,40 @@ use crate::{
     utils::{VectorArray, resolve_index_signed_unchecked},
 };
 
+use mlx_internal_macros::default_device;
+
 use super::{ArrayIndex, ArrayIndexOp, Guarded, RangeIndex, TryIndexMutOp};
 
 impl Array {
-    pub(crate) fn slice_update_device(
+    /// Return a copy of the array with the region `[starts, ends)` (stepped by
+    /// `strides`) overwritten by `update`.
+    ///
+    /// This is the in-place-friendly counterpart to growing a buffer with
+    /// [`concatenate`](crate::ops::concatenate): when the receiver is not
+    /// referenced elsewhere, MLX donates its buffer to the result at eval time,
+    /// so the write costs `O(update)` rather than reallocating and recopying the
+    /// whole array. This makes it the right primitive for a preallocated KV
+    /// cache — allocate the full `[.., max_len, ..]` tensor once and write each
+    /// step's slice:
+    ///
+    /// ```rust
+    /// use mlx_rs::{Array, ops::zeros};
+    ///
+    /// // Cache holding up to 4 timesteps of a 2-wide feature.
+    /// let mut cache = zeros::<f32>(&[4, 2]).unwrap();
+    /// let step = Array::from_slice(&[1.0f32, 2.0], &[1, 2]);
+    ///
+    /// // Write step 0 into rows [0, 1). Reassigning drops the old binding, so
+    /// // MLX can reuse the buffer instead of allocating a new one.
+    /// cache = cache.slice_update(&step, &[0, 0], &[1, 2], &[1, 1]).unwrap();
+    /// let data: &[f32] = cache.try_as_slice().unwrap();
+    /// assert_eq!(data, &[1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    /// ```
+    ///
+    /// `starts`, `ends`, and `strides` must each have one entry per dimension of
+    /// the array.
+    #[default_device]
+    pub fn slice_update_device(
         &self,
         update: &Array,
         starts: &[i32],
@@ -1480,5 +1510,22 @@ mod tests {
             result.is_ok(),
             "Failed to update slice with broadcast: {result:?}"
         );
+    }
+
+    #[test]
+    fn test_slice_update_public_kv_cache() {
+        // Preallocate a [4, 2] cache and fill it a row at a time via the public
+        // slice_update, as a KV cache would per decode step.
+        let mut cache = zeros::<f32>(&[4, 2]).unwrap();
+        for row in 0..4i32 {
+            let step = Array::from_slice(&[row as f32, row as f32 + 0.5], &[1, 2]);
+            cache = cache
+                .slice_update(&step, &[row, 0], &[row + 1, 2], &[1, 1])
+                .unwrap();
+        }
+        cache.eval().unwrap();
+
+        let data: &[f32] = cache.try_as_slice().unwrap();
+        assert_eq!(data, &[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]);
     }
 }

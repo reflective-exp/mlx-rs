@@ -117,7 +117,7 @@ pub fn quantize_device<'a>(
             // An empty array signals "no global scale" (used by non-affine modes only).
             global_scale
                 .map(|a| a.as_ptr())
-                .unwrap_or(mlx_sys::mlx_array_new()),
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             stream.as_ref().as_ptr(),
         )
     })?;
@@ -168,7 +168,7 @@ pub fn quantized_matmul_device<'a>(
             scales.as_ref().as_ptr(),
             biases
                 .map(|a| a.as_ptr())
-                .unwrap_or(mlx_sys::mlx_array_new()),
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             transpose,
             group_size,
             bits,
@@ -215,14 +215,14 @@ pub fn dequantize_device<'a>(
             scales.as_ref().as_ptr(),
             biases
                 .map(|a| a.as_ptr())
-                .unwrap_or(mlx_sys::mlx_array_new()),
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             group_size,
             bits,
             mode.as_ptr(),
             // An empty array signals "no global scale" (used by non-affine modes only).
             global_scale
                 .map(|a| a.as_ptr())
-                .unwrap_or(mlx_sys::mlx_array_new()),
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             output_dtype,
             stream.as_ref().as_ptr(),
         )
@@ -273,15 +273,15 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
         let biases_ptr = biases
             .into()
             .map(|a| a.as_ptr())
-            .unwrap_or(mlx_sys::mlx_array_new());
+            .unwrap_or_else(crate::utils::empty_array_ptr);
         let lhs_ptr = lhs_indices
             .into()
             .map(|i| i.as_ptr())
-            .unwrap_or(mlx_sys::mlx_array_new());
+            .unwrap_or_else(crate::utils::empty_array_ptr);
         let rhs_ptr = rhs_indices
             .into()
             .map(|i| i.as_ptr())
-            .unwrap_or(mlx_sys::mlx_array_new());
+            .unwrap_or_else(crate::utils::empty_array_ptr);
 
         <Array as Guarded>::try_from_op(|res| {
             mlx_sys::mlx_gather_qmm(
@@ -353,7 +353,7 @@ pub fn qqmm_device<'a>(
             w_scales
                 .into()
                 .map(|a| a.as_ptr())
-                .unwrap_or(mlx_sys::mlx_array_new()),
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             group_size,
             bits,
             mode.as_ptr(),

@@ -1,7 +1,6 @@
 use crate::Stream;
 use crate::array::Array;
 use crate::error::Result;
-use crate::utils::axes_or_default_to_all;
 use crate::utils::guard::Guarded;
 use mlx_internal_macros::{default_device, generate_macro};
 
@@ -314,7 +313,6 @@ impl Array {
         keep_dims: impl Into<Option<bool>>,
         stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let axes = axes_or_default_to_all(axes, self.ndim() as i32);
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_mean_axes(
                 res,
