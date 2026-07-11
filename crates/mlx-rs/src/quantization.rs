@@ -10,17 +10,24 @@ pub trait Quantizable {
     /// The default number of bits for quantization.
     const DEFAULT_BITS: i32 = 4;
 
+    /// The default quantization mode.
+    const DEFAULT_MODE: &'static str = "affine";
+
     /// The quantized type.
     type Quantized;
 
     /// The error type for quantization.
     type QuantizationError;
 
-    /// Quantize the module with the specified group size and number of bits.
+    /// Quantize the module with the specified group size, number of bits, and quantization mode.
+    ///
+    /// `mode` selects the quantization scheme (e.g. `"affine"`, `"mxfp4"`). See the MLX
+    /// documentation for the supported modes.
     fn try_into_quantized(
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError>;
 }
 
@@ -36,9 +43,10 @@ where
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         self.into_iter()
-            .map(|m| m.try_into_quantized(group_size, bits))
+            .map(|m| m.try_into_quantized(group_size, bits, mode))
             .collect()
     }
 }
@@ -55,8 +63,11 @@ where
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
-        (*self).try_into_quantized(group_size, bits).map(Box::new)
+        (*self)
+            .try_into_quantized(group_size, bits, mode)
+            .map(Box::new)
     }
 }
 
@@ -72,9 +83,10 @@ where
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
         match self {
-            Some(m) => m.try_into_quantized(group_size, bits).map(Some),
+            Some(m) => m.try_into_quantized(group_size, bits, mode).map(Some),
             None => Ok(None),
         }
     }
@@ -104,10 +116,11 @@ where
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self, Self::QuantizationError> {
         match self {
             MaybeQuantized::Original(m) => {
-                let quantized = m.try_into_quantized(group_size, bits)?;
+                let quantized = m.try_into_quantized(group_size, bits, mode)?;
                 Ok(MaybeQuantized::Quantized(quantized))
             }
             MaybeQuantized::Quantized(q) => Ok(MaybeQuantized::Quantized(q)),
@@ -245,7 +258,7 @@ mod tests {
         let mut qlinear = MaybeQuantized::new(linear);
         assert!(!qlinear.is_quantized());
 
-        qlinear = nn::quantize(qlinear, None, None).unwrap();
+        qlinear = nn::quantize(qlinear, None, None, None).unwrap();
         assert!(qlinear.is_quantized());
     }
 
@@ -255,7 +268,7 @@ mod tests {
         let mut qembedding = MaybeQuantized::new(embedding);
         assert!(!qembedding.is_quantized());
 
-        qembedding = nn::quantize(qembedding, None, None).unwrap();
+        qembedding = nn::quantize(qembedding, None, None, None).unwrap();
         assert!(qembedding.is_quantized());
     }
 }

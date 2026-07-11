@@ -1,7 +1,7 @@
 use darling::FromDeriveInput;
 use syn::{DeriveInput, Generics, Ident};
 
-use crate::util::{filter_fields_with_attr, FilteredFields};
+use crate::util::{FilteredFields, filter_fields_with_attr};
 
 #[derive(Debug, Clone, FromDeriveInput)]
 #[darling(attributes(quantizable))]
@@ -78,11 +78,12 @@ fn impl_quantizable_module_for_struct(
                     self,
                     group_size: i32,
                     bits: i32,
+                    mode: &str,
                 ) -> Result<Self::Quantized, Self::QuantizationError> {
                     Ok(Self {
                         #(
                             #filtered_field_names: #root::quantization::Quantizable
-                                ::try_into_quantized(self.#filtered_field_names, group_size, bits)?,
+                                ::try_into_quantized(self.#filtered_field_names, group_size, bits, mode)?,
                         )*
                         #(
                             #other_field_names: self.#other_field_names,

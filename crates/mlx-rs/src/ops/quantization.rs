@@ -1,14 +1,12 @@
-use std::ffi::CStr;
-
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{
-    error::Result,
-    utils::{guard::Guarded, VectorArray},
     Array, Stream,
+    error::Result,
+    utils::{VectorArray, guard::Guarded},
 };
 
-const DEFAULT_MODE: &CStr = c"affine";
+const DEFAULT_MODE_STR: &str = "affine";
 const DEFAULT_GROUP_SIZE: i32 = 64;
 const DEFAULT_BITS: i32 = 4;
 
@@ -47,14 +45,19 @@ fn optional_dtype_none() -> mlx_sys::mlx_optional_dtype {
 ///   (default: 4)
 #[generate_macro]
 #[default_device]
-pub fn quantize_device(
+pub fn quantize_device<'a>(
     w: impl AsRef<Array>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
+    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] global_scale: impl Into<Option<&'a Array>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<(Array, Array, Array)> {
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
+    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
+        .expect("Invalid mode string");
+    let global_scale = global_scale.into();
 
     let result = VectorArray::try_from_op(|res| unsafe {
         mlx_sys::mlx_quantize(
@@ -62,7 +65,11 @@ pub fn quantize_device(
             w.as_ref().as_ptr(),
             group_size,
             bits,
-            DEFAULT_MODE.as_ptr(),
+            mode.as_ptr(),
+            // An empty array signals "no global scale" (used by non-affine modes only).
+            global_scale
+                .map(|a| a.as_ptr())
+                .unwrap_or(mlx_sys::mlx_array_new()),
             stream.as_ref().as_ptr(),
         )
     })?;
@@ -96,11 +103,15 @@ pub fn quantized_matmul_device<'a>(
     #[optional] transpose: impl Into<Option<bool>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
+    #[optional] mode: impl Into<Option<&'a str>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let transpose = transpose.into().unwrap_or(false);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
+    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
+        .expect("Invalid mode string");
+    let biases = biases.into();
 
     <Array as Guarded>::try_from_op(|res| unsafe {
         mlx_sys::mlx_quantized_matmul(
@@ -109,13 +120,12 @@ pub fn quantized_matmul_device<'a>(
             w.as_ref().as_ptr(),
             scales.as_ref().as_ptr(),
             biases
-                .into()
                 .map(|a| a.as_ptr())
                 .unwrap_or(mlx_sys::mlx_array_new()),
             transpose,
             group_size,
             bits,
-            DEFAULT_MODE.as_ptr(),
+            mode.as_ptr(),
             stream.as_ref().as_ptr(),
         )
     })
@@ -126,6 +136,7 @@ pub fn quantized_matmul_device<'a>(
 ///
 /// For details, please see [this
 /// documentation](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.dequantize.html)
+#[allow(clippy::too_many_arguments)]
 #[generate_macro]
 #[default_device]
 pub fn dequantize_device<'a>(
@@ -134,10 +145,16 @@ pub fn dequantize_device<'a>(
     #[optional] biases: impl Into<Option<&'a Array>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
+    #[optional] mode: impl Into<Option<&'a str>>,
+    #[optional] global_scale: impl Into<Option<&'a Array>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
+    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
+        .expect("Invalid mode string");
+    let biases = biases.into();
+    let global_scale = global_scale.into();
 
     <Array as Guarded>::try_from_op(|res| unsafe {
         mlx_sys::mlx_dequantize(
@@ -145,12 +162,15 @@ pub fn dequantize_device<'a>(
             w.as_ref().as_ptr(),
             scales.as_ref().as_ptr(),
             biases
-                .into()
                 .map(|a| a.as_ptr())
                 .unwrap_or(mlx_sys::mlx_array_new()),
             group_size,
             bits,
-            DEFAULT_MODE.as_ptr(),
+            mode.as_ptr(),
+            // An empty array signals "no global scale" (used by non-affine modes only).
+            global_scale
+                .map(|a| a.as_ptr())
+                .unwrap_or(mlx_sys::mlx_array_new()),
             optional_dtype_none(),
             stream.as_ref().as_ptr(),
         )
@@ -187,12 +207,15 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
     #[optional] transpose: impl Into<Option<bool>>,
     #[optional] group_size: impl Into<Option<i32>>,
     #[optional] bits: impl Into<Option<i32>>,
+    #[optional] mode: impl Into<Option<&'b str>>,
     #[optional] sorted_indices: impl Into<Option<bool>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let transpose = transpose.into().unwrap_or(true);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
+    let mode = std::ffi::CString::new(mode.into().unwrap_or(DEFAULT_MODE_STR))
+        .expect("Invalid mode string");
     let sorted = sorted_indices.into().unwrap_or(false);
 
     unsafe {
@@ -221,7 +244,7 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
                 transpose,
                 group_size,
                 bits,
-                DEFAULT_MODE.as_ptr(),
+                mode.as_ptr(),
                 sorted,
                 stream.as_ref().as_ptr(),
             )
@@ -291,8 +314,9 @@ pub fn qqmm_device<'a>(
 #[cfg(test)]
 mod tests {
     use crate::{
+        Array,
         ops::{dequantize, expand_dims, quantize, quantized_matmul},
-        random, Array,
+        random,
     };
 
     #[test]
@@ -303,12 +327,12 @@ mod tests {
 
         for i in [2, 4, 8].iter() {
             let el_per_int = 32 / i;
-            let (x_q, scales, biases) = quantize(&x, 128, *i).unwrap();
+            let (x_q, scales, biases) = quantize(&x, 128, *i, None, None).unwrap();
             assert_eq!(x_q.shape(), [128, 512 / el_per_int]);
             assert_eq!(scales.shape(), [128, 4]);
             assert_eq!(biases.shape(), [128, 4]);
 
-            let x_hat = dequantize(&x_q, &scales, &biases, 128, *i).unwrap();
+            let x_hat = dequantize(&x_q, &scales, &biases, 128, *i, None, None).unwrap();
             let max_diff = ((&x - &x_hat).abs().unwrap().max(None).unwrap()).item::<f32>();
             assert!(max_diff <= 127.0 / (1 << i) as f32);
         }
@@ -329,11 +353,12 @@ mod tests {
         let x = random::normal::<f32>(&[m, k], None, None, None).unwrap() * scale;
         let w = random::normal::<f32>(&[k, n], None, None, None).unwrap() * scale;
 
-        let (w_q, scales, biases) = quantize(&w, group_size, bits).unwrap();
-        let w_hat = dequantize(&w_q, &scales, &biases, group_size, bits).unwrap();
+        let (w_q, scales, biases) = quantize(&w, group_size, bits, None, None).unwrap();
+        let w_hat = dequantize(&w_q, &scales, &biases, group_size, bits, None, None).unwrap();
 
         // Test with biases
-        let y_q = quantized_matmul(&x, &w_q, &scales, &biases, false, group_size, bits).unwrap();
+        let y_q =
+            quantized_matmul(&x, &w_q, &scales, &biases, false, group_size, bits, None).unwrap();
         let y_hat = x.matmul(&w_hat).unwrap();
 
         assert_eq!(y_q.shape(), y_hat.shape());
@@ -358,8 +383,9 @@ mod tests {
             group_size: i32,
             bits: i32,
         ) -> (Array, Array, Array, Array) {
-            let (w_q, scales, biases) = quantize(w, group_size, bits).unwrap();
-            let mut w_hat = dequantize(&w_q, &scales, &biases, group_size, bits).unwrap();
+            let (w_q, scales, biases) = quantize(w, group_size, bits, None, None).unwrap();
+            let mut w_hat =
+                dequantize(&w_q, &scales, &biases, group_size, bits, None, None).unwrap();
             if transpose {
                 w_hat = swap_axes(&w_hat, -1, -2).unwrap();
             }
@@ -390,7 +416,8 @@ mod tests {
             true,
             group_size,
             bits,
-            None,
+            None, // mode
+            None, // sorted_indices
         )
         .unwrap();
         assert!(
@@ -413,7 +440,8 @@ mod tests {
             true,
             group_size,
             bits,
-            None,
+            None, // mode
+            None, // sorted_indices
         )
         .unwrap();
         assert!(

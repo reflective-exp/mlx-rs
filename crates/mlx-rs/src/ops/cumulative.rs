@@ -1,7 +1,22 @@
 use crate::error::Result;
 use crate::utils::guard::Guarded;
-use crate::{Array, Stream};
+use crate::{Array, Dtype, Stream};
 use mlx_internal_macros::{default_device, generate_macro};
+
+/// Convert an optional accumulation [`Dtype`] to the C `mlx_optional_dtype`. When `None`, MLX picks
+/// the accumulation dtype (the pre-0.32 behavior).
+fn optional_dtype(dtype: Option<Dtype>) -> mlx_sys::mlx_optional_dtype {
+    match dtype {
+        Some(dtype) => mlx_sys::mlx_optional_dtype {
+            value: dtype.into(),
+            has_value: true,
+        },
+        None => mlx_sys::mlx_optional_dtype {
+            value: mlx_sys::mlx_dtype__MLX_FLOAT32, // ignored when has_value is false
+            has_value: false,
+        },
+    }
+}
 
 impl Array {
     /// Return the cumulative maximum of the elements along the given axis returning an error if the inputs are invalid.
@@ -129,7 +144,7 @@ impl Array {
     /// let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
     ///
     /// // result is [[5, 8], [20, 72]] -- cumulative min along the columns
-    /// let result = array.cumprod(0, None, None).unwrap();
+    /// let result = array.cumprod(0, None, None, None).unwrap();
     /// ```
     #[default_device]
     pub fn cumprod_device(
@@ -137,9 +152,11 @@ impl Array {
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
+        dtype: impl Into<Option<Dtype>>,
         stream: impl AsRef<Stream>,
     ) -> Result<Array> {
         let stream = stream.as_ref();
+        let dtype = optional_dtype(dtype.into());
 
         match axis.into() {
             Some(axis) => Array::try_from_op(|res| unsafe {
@@ -149,6 +166,7 @@ impl Array {
                     axis,
                     reverse.into().unwrap_or(false),
                     inclusive.into().unwrap_or(true),
+                    dtype,
                     stream.as_ptr(),
                 )
             }),
@@ -162,6 +180,7 @@ impl Array {
                         0,
                         reverse.into().unwrap_or(false),
                         inclusive.into().unwrap_or(true),
+                        dtype,
                         stream.as_ptr(),
                     )
                 })
@@ -184,7 +203,7 @@ impl Array {
     /// let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
     ///
     /// // result is [[5, 8], [9, 17]] -- cumulative min along the columns
-    /// let result = array.cumsum(0, None, None).unwrap();
+    /// let result = array.cumsum(0, None, None, None).unwrap();
     /// ```
     #[default_device]
     pub fn cumsum_device(
@@ -192,9 +211,11 @@ impl Array {
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
+        dtype: impl Into<Option<Dtype>>,
         stream: impl AsRef<Stream>,
     ) -> Result<Array> {
         let stream = stream.as_ref();
+        let dtype = optional_dtype(dtype.into());
 
         match axis.into() {
             Some(axis) => Array::try_from_op(|res| unsafe {
@@ -204,6 +225,7 @@ impl Array {
                     axis,
                     reverse.into().unwrap_or(false),
                     inclusive.into().unwrap_or(true),
+                    dtype,
                     stream.as_ptr(),
                 )
             }),
@@ -217,6 +239,7 @@ impl Array {
                         0,
                         reverse.into().unwrap_or(false),
                         inclusive.into().unwrap_or(true),
+                        dtype,
                         stream.as_ptr(),
                     )
                 })
@@ -259,9 +282,11 @@ pub fn cumprod_device(
     #[optional] axis: impl Into<Option<i32>>,
     #[optional] reverse: impl Into<Option<bool>>,
     #[optional] inclusive: impl Into<Option<bool>>,
+    #[optional] dtype: impl Into<Option<Dtype>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    a.as_ref().cumprod_device(axis, reverse, inclusive, stream)
+    a.as_ref()
+        .cumprod_device(axis, reverse, inclusive, dtype, stream)
 }
 
 /// See [`Array::cumsum`]
@@ -272,9 +297,11 @@ pub fn cumsum_device(
     #[optional] axis: impl Into<Option<i32>>,
     #[optional] reverse: impl Into<Option<bool>>,
     #[optional] inclusive: impl Into<Option<bool>>,
+    #[optional] dtype: impl Into<Option<Dtype>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    a.as_ref().cumsum_device(axis, reverse, inclusive, stream)
+    a.as_ref()
+        .cumsum_device(axis, reverse, inclusive, dtype, stream)
 }
 
 #[cfg(test)]
@@ -350,23 +377,23 @@ mod tests {
     fn test_cumprod() {
         let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
 
-        let result = array.cumprod(0, None, None).unwrap();
+        let result = array.cumprod(0, None, None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 8, 20, 72]);
 
-        let result = array.cumprod(1, None, None).unwrap();
+        let result = array.cumprod(1, None, None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 40, 4, 36]);
 
-        let result = array.cumprod(None, None, None).unwrap();
+        let result = array.cumprod(None, None, None, None).unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.as_slice::<i32>(), &[5, 40, 160, 1440]);
 
-        let result = array.cumprod(0, Some(true), None).unwrap();
+        let result = array.cumprod(0, Some(true), None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[20, 72, 4, 9]);
 
-        let result = array.cumprod(0, None, Some(true)).unwrap();
+        let result = array.cumprod(0, None, Some(true), None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 8, 20, 72]);
     }
@@ -374,7 +401,7 @@ mod tests {
     #[test]
     fn test_cumprod_out_of_bounds() {
         let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
-        let result = array.cumprod(2, None, None);
+        let result = array.cumprod(2, None, None, None);
         assert!(result.is_err());
     }
 
@@ -382,31 +409,40 @@ mod tests {
     fn test_cumsum() {
         let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
 
-        let result = array.cumsum(0, None, None).unwrap();
+        let result = array.cumsum(0, None, None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 8, 9, 17]);
 
-        let result = array.cumsum(1, None, None).unwrap();
+        let result = array.cumsum(1, None, None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 13, 4, 13]);
 
-        let result = array.cumsum(None, None, None).unwrap();
+        let result = array.cumsum(None, None, None, None).unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.as_slice::<i32>(), &[5, 13, 17, 26]);
 
-        let result = array.cumsum(0, Some(true), None).unwrap();
+        let result = array.cumsum(0, Some(true), None, None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[9, 17, 4, 9]);
 
-        let result = array.cumsum(0, None, Some(true)).unwrap();
+        let result = array.cumsum(0, None, Some(true), None).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.as_slice::<i32>(), &[5, 8, 9, 17]);
     }
 
     #[test]
+    fn test_cumsum_with_dtype() {
+        // Passing a dtype promotes the accumulation/output type (int input -> float output).
+        let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
+        let result = array.cumsum(0, None, None, crate::Dtype::Float32).unwrap();
+        assert_eq!(result.dtype(), crate::Dtype::Float32);
+        assert_eq!(result.as_slice::<f32>(), &[5.0, 8.0, 9.0, 17.0]);
+    }
+
+    #[test]
     fn test_cumsum_out_of_bounds() {
         let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
-        let result = array.cumsum(2, None, None);
+        let result = array.cumsum(2, None, None, None);
         assert!(result.is_err());
     }
 }

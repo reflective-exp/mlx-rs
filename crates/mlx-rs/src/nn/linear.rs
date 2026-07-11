@@ -1,6 +1,6 @@
 use std::iter::once;
 
-use crate::{error::Exception, quantization::Quantizable, Array};
+use crate::{Array, error::Exception, quantization::Quantizable};
 use mlx_internal_macros::{Buildable, Builder};
 
 use crate::{
@@ -102,8 +102,9 @@ impl Quantizable for Linear {
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
-        QuantizedLinear::try_from_linear(self, group_size, bits)
+        QuantizedLinear::try_from_linear(self, group_size, bits, mode)
     }
 }
 
@@ -215,7 +216,7 @@ impl Module<&Array> for Bilinear {
 // mlx-swift/Tests/MLXTests/IntegrationTests.swift
 #[cfg(test)]
 mod tests {
-    use crate::{random::uniform, Dtype};
+    use crate::{Dtype, random::uniform};
     use float_eq::assert_float_eq;
 
     use super::*;

@@ -1,13 +1,14 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{
+    Stream,
     array::Array,
     error::Result,
-    utils::{guard::Guarded, IntoOption},
-    Stream,
+    utils::{IntoOption, guard::Guarded},
 };
 
 use super::utils::{resolve_size_and_axis_unchecked, resolve_sizes_and_axes_unchecked};
+use super::{FftNorm, resolve_norm};
 
 /// One dimensional discrete Fourier Transform.
 ///
@@ -23,12 +24,14 @@ pub fn fft_device(
     a: impl AsRef<Array>,
     #[optional] n: impl Into<Option<i32>>,
     #[optional] axis: impl Into<Option<i32>>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
+    let norm = resolve_norm(norm.into());
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_fft_fft(res, a.as_ptr(), n, axis, stream.as_ref().as_ptr())
+        mlx_sys::mlx_fft_fft(res, a.as_ptr(), n, axis, norm, stream.as_ref().as_ptr())
     })
 }
 
@@ -46,6 +49,7 @@ pub fn fft2_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -57,6 +61,7 @@ pub fn fft2_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_fft2(
@@ -66,6 +71,7 @@ pub fn fft2_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -87,6 +93,7 @@ pub fn fftn_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -96,6 +103,7 @@ pub fn fftn_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_fftn(
@@ -105,6 +113,7 @@ pub fn fftn_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -124,13 +133,15 @@ pub fn ifft_device(
     a: impl AsRef<Array>,
     #[optional] n: impl Into<Option<i32>>,
     #[optional] axis: impl Into<Option<i32>>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_fft_ifft(res, a.as_ptr(), n, axis, stream.as_ref().as_ptr())
+        mlx_sys::mlx_fft_ifft(res, a.as_ptr(), n, axis, norm, stream.as_ref().as_ptr())
     })
 }
 
@@ -148,6 +159,7 @@ pub fn ifft2_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -159,6 +171,7 @@ pub fn ifft2_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_ifft2(
@@ -168,6 +181,7 @@ pub fn ifft2_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -189,6 +203,7 @@ pub fn ifftn_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -198,6 +213,7 @@ pub fn ifftn_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_ifftn(
@@ -207,6 +223,7 @@ pub fn ifftn_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -214,7 +231,7 @@ pub fn ifftn_device<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{complex64, fft::*, Array, Dtype};
+    use crate::{Array, Dtype, complex64, fft::*};
 
     #[test]
     fn test_fft() {
@@ -228,12 +245,12 @@ mod tests {
         ];
 
         let array = Array::from_slice(FFT_DATA, FFT_SHAPE);
-        let fft = fft(&array, None, None).unwrap();
+        let fft = fft(&array, None, None, None).unwrap();
 
         assert_eq!(fft.dtype(), Dtype::Complex64);
         assert_eq!(fft.as_slice::<complex64>(), FFT_EXPECTED);
 
-        let ifft = ifft(&fft, None, None).unwrap();
+        let ifft = ifft(&fft, None, None, None).unwrap();
 
         assert_eq!(ifft.dtype(), Dtype::Complex64);
         assert_eq!(
@@ -250,6 +267,21 @@ mod tests {
     }
 
     #[test]
+    fn test_fft_norm_ortho() {
+        // Orthonormal normalization scales the forward transform by 1/sqrt(n).
+        let array = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4]);
+        let fft = fft(&array, None, None, FftNorm::Ortho).unwrap();
+
+        let expected = &[
+            complex64::new(5.0, 0.0),
+            complex64::new(-1.0, 1.0),
+            complex64::new(-1.0, 0.0),
+            complex64::new(-1.0, -1.0),
+        ];
+        assert_eq!(fft.as_slice::<complex64>(), expected);
+    }
+
+    #[test]
     fn test_fft2() {
         const FFT2_DATA: &[f32] = &[1.0, 1.0, 1.0, 1.0];
         const FFT2_SHAPE: &[i32] = &[2, 2];
@@ -261,12 +293,12 @@ mod tests {
         ];
 
         let array = Array::from_slice(FFT2_DATA, FFT2_SHAPE);
-        let fft2 = fft2(&array, None, None).unwrap();
+        let fft2 = fft2(&array, None, None, None).unwrap();
 
         assert_eq!(fft2.dtype(), Dtype::Complex64);
         assert_eq!(fft2.as_slice::<complex64>(), FFT2_EXPECTED);
 
-        let ifft2 = ifft2(&fft2, None, None).unwrap();
+        let ifft2 = ifft2(&fft2, None, None, None).unwrap();
 
         assert_eq!(ifft2.dtype(), Dtype::Complex64);
         assert_eq!(
@@ -298,12 +330,12 @@ mod tests {
         ];
 
         let array = Array::from_slice(FFTN_DATA, FFTN_SHAPE);
-        let fftn = fftn(&array, None, None).unwrap();
+        let fftn = fftn(&array, None, None, None).unwrap();
 
         assert_eq!(fftn.dtype(), Dtype::Complex64);
         assert_eq!(fftn.as_slice::<complex64>(), FFTN_EXPECTED);
 
-        let ifftn = ifftn(&fftn, FFTN_SHAPE, &[0, 1, 2]).unwrap();
+        let ifftn = ifftn(&fftn, FFTN_SHAPE, &[0, 1, 2], None).unwrap();
 
         assert_eq!(ifftn.dtype(), Dtype::Complex64);
         assert_eq!(

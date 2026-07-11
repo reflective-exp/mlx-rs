@@ -1,12 +1,13 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{
-    error::Result,
-    utils::{guard::Guarded, IntoOption},
     Array, Stream,
+    error::Result,
+    utils::{IntoOption, guard::Guarded},
 };
 
 use super::utils::{resolve_size_and_axis_unchecked, resolve_sizes_and_axes_unchecked};
+use super::{FftNorm, resolve_norm};
 
 /// One dimensional discrete Fourier Transform on a real input.
 ///
@@ -25,12 +26,14 @@ pub fn rfft_device(
     a: impl AsRef<Array>,
     #[optional] n: impl Into<Option<i32>>,
     #[optional] axis: impl Into<Option<i32>>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
+    let norm = resolve_norm(norm.into());
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_fft_rfft(res, a.as_ptr(), n, axis, stream.as_ref().as_ptr())
+        mlx_sys::mlx_fft_rfft(res, a.as_ptr(), n, axis, norm, stream.as_ref().as_ptr())
     })
 }
 
@@ -52,6 +55,7 @@ pub fn rfft2_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -63,6 +67,7 @@ pub fn rfft2_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_rfft2(
@@ -72,6 +77,7 @@ pub fn rfft2_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -96,6 +102,7 @@ pub fn rfftn_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -106,6 +113,7 @@ pub fn rfftn_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_rfftn(
@@ -115,12 +123,13 @@ pub fn rfftn_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
 }
 
-/// The inverse of [`rfft()`].
+/// The inverse of [`rfft(, None)`].
 ///
 /// The output has the same shape as the input except along axis in which case it has size n.
 ///
@@ -136,6 +145,7 @@ pub fn irfft_device(
     a: impl AsRef<Array>,
     #[optional] n: impl Into<Option<i32>>,
     #[optional] axis: impl Into<Option<i32>>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -146,13 +156,14 @@ pub fn irfft_device(
     if modify_n {
         n = (n - 1) * 2;
     }
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_fft_irfft(res, a.as_ptr(), n, axis, stream.as_ref().as_ptr())
+        mlx_sys::mlx_fft_irfft(res, a.as_ptr(), n, axis, norm, stream.as_ref().as_ptr())
     })
 }
 
-/// The inverse of [`rfft2()`].
+/// The inverse of [`rfft2(, None)`].
 ///
 /// Note the input is generally complex. The dimensions of the input specified in `axes` are padded
 /// or truncated to match the sizes from `s`. The last axis in `axes` is treated as the real axis
@@ -171,6 +182,7 @@ pub fn irfft2_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -189,6 +201,7 @@ pub fn irfft2_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_irfft2(
@@ -198,12 +211,13 @@ pub fn irfft2_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
 }
 
-/// The inverse of [`rfftn()`].
+/// The inverse of [`rfftn(, None)`].
 ///
 /// Note the input is generally complex. The dimensions of the input specified in `axes` are padded
 /// or truncated to match the sizes from `s`. The last axis in `axes` is treated as the real axis
@@ -223,6 +237,7 @@ pub fn irfftn_device<'a>(
     a: impl AsRef<Array>,
     #[optional] s: impl IntoOption<&'a [i32]>,
     #[optional] axes: impl IntoOption<&'a [i32]>,
+    #[optional] norm: impl Into<Option<FftNorm>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let a = a.as_ref();
@@ -241,6 +256,7 @@ pub fn irfftn_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
+    let norm = resolve_norm(norm.into());
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_irfftn(
@@ -250,6 +266,7 @@ pub fn irfftn_device<'a>(
             num_s,
             axes_ptr,
             num_axes,
+            norm,
             stream.as_ref().as_ptr(),
         )
     })
@@ -257,7 +274,7 @@ pub fn irfftn_device<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{complex64, Array, Dtype};
+    use crate::{Array, Dtype, complex64};
 
     #[test]
     fn test_rfft() {
@@ -272,11 +289,11 @@ mod tests {
         ];
 
         let a = Array::from_slice(RFFT_DATA, RFFT_SHAPE);
-        let rfft = super::rfft(&a, RFFT_N, RFFT_AXIS).unwrap();
+        let rfft = super::rfft(&a, RFFT_N, RFFT_AXIS, None).unwrap();
         assert_eq!(rfft.dtype(), Dtype::Complex64);
         assert_eq!(rfft.as_slice::<complex64>(), RFFT_EXPECTED);
 
-        let irfft = super::irfft(&rfft, RFFT_N, RFFT_AXIS).unwrap();
+        let irfft = super::irfft(&rfft, RFFT_N, RFFT_AXIS, None).unwrap();
         assert_eq!(irfft.dtype(), Dtype::Float32);
         assert_eq!(irfft.as_slice::<f32>(), RFFT_DATA);
     }
@@ -287,7 +304,7 @@ mod tests {
         const OUT_N: i32 = IN_N / 2 + 1;
 
         let a = Array::ones::<f32>(&[IN_N]).unwrap();
-        let rfft = super::rfft(&a, None, None).unwrap();
+        let rfft = super::rfft(&a, None, None, None).unwrap();
         assert_eq!(rfft.shape(), &[OUT_N]);
     }
 
@@ -297,7 +314,7 @@ mod tests {
         const OUT_N: i32 = (IN_N - 1) * 2;
 
         let a = Array::ones::<f32>(&[IN_N]).unwrap();
-        let irfft = super::irfft(&a, None, None).unwrap();
+        let irfft = super::irfft(&a, None, None, None).unwrap();
         assert_eq!(irfft.shape(), &[OUT_N]);
     }
 
@@ -313,11 +330,11 @@ mod tests {
         ];
 
         let a = Array::from_slice(RFFT2_DATA, RFFT2_SHAPE);
-        let rfft2 = super::rfft2(&a, None, None).unwrap();
+        let rfft2 = super::rfft2(&a, None, None, None).unwrap();
         assert_eq!(rfft2.dtype(), Dtype::Complex64);
         assert_eq!(rfft2.as_slice::<complex64>(), RFFT2_EXPECTED);
 
-        let irfft2 = super::irfft2(&rfft2, None, None).unwrap();
+        let irfft2 = super::irfft2(&rfft2, None, None, None).unwrap();
         assert_eq!(irfft2.dtype(), Dtype::Float32);
         assert_eq!(irfft2.as_slice::<f32>(), RFFT2_DATA);
     }
@@ -328,7 +345,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6 / 2 + 1];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let rfft2 = super::rfft2(&a, None, None).unwrap();
+        let rfft2 = super::rfft2(&a, None, None, None).unwrap();
         assert_eq!(rfft2.shape(), OUT_SHAPE);
     }
 
@@ -338,7 +355,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, (6 - 1) * 2];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let irfft2 = super::irfft2(&a, None, None).unwrap();
+        let irfft2 = super::irfft2(&a, None, None, None).unwrap();
         assert_eq!(irfft2.shape(), OUT_SHAPE);
     }
 
@@ -358,11 +375,11 @@ mod tests {
         ];
 
         let a = Array::from_slice(RFFTN_DATA, RFFTN_SHAPE);
-        let rfftn = super::rfftn(&a, None, None).unwrap();
+        let rfftn = super::rfftn(&a, None, None, None).unwrap();
         assert_eq!(rfftn.dtype(), Dtype::Complex64);
         assert_eq!(rfftn.as_slice::<complex64>(), RFFTN_EXPECTED);
 
-        let irfftn = super::irfftn(&rfftn, None, None).unwrap();
+        let irfftn = super::irfftn(&rfftn, None, None, None).unwrap();
         assert_eq!(irfftn.dtype(), Dtype::Float32);
         assert_eq!(irfftn.as_slice::<f32>(), RFFTN_DATA);
     }
@@ -373,7 +390,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6, 6 / 2 + 1];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let rfftn = super::rfftn(&a, None, None).unwrap();
+        let rfftn = super::rfftn(&a, None, None, None).unwrap();
         assert_eq!(rfftn.shape(), OUT_SHAPE);
     }
 
@@ -383,7 +400,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6, (6 - 1) * 2];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let irfftn = super::irfftn(&a, None, None).unwrap();
+        let irfftn = super::irfftn(&a, None, None, None).unwrap();
         assert_eq!(irfftn.shape(), OUT_SHAPE);
     }
 }

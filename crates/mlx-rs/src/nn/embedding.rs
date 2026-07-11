@@ -1,11 +1,11 @@
 //! Embedding layer.
 
+use crate::Array;
 use crate::error::Exception;
 use crate::module::Module;
 use crate::module::Param;
 use crate::ops::indexing::IndexOp;
 use crate::quantization::Quantizable;
-use crate::Array;
 use mlx_macros::ModuleParameters;
 
 use super::QuantizedEmbedding;
@@ -56,8 +56,9 @@ impl Quantizable for Embedding {
         self,
         group_size: i32,
         bits: i32,
+        mode: &str,
     ) -> Result<Self::Quantized, Self::QuantizationError> {
-        QuantizedEmbedding::try_from_embedding(self, group_size, bits)
+        QuantizedEmbedding::try_from_embedding(self, group_size, bits, mode)
     }
 }
 

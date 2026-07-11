@@ -1,3 +1,4 @@
 [submodule "crates/mlx-sys/src/mlx-c"]
 	path = crates/mlx-sys/src/mlx-c
-	url = https://github.com/ml-explore/mlx-c
+	url = https://github.com/sax/mlx-c.git
+	branch = mlx-0.32.0

@@ -1,16 +1,16 @@
 use crate::{
+    Stream,
     dtype::Dtype,
     error::AsSliceError,
     sealed::Sealed,
-    utils::{guard::Guarded, SUCCESS},
-    Stream,
+    utils::{SUCCESS, guard::Guarded},
 };
 use element::FromSliceElement;
 use mlx_internal_macros::default_device;
 use mlx_sys::mlx_array;
 use num_complex::Complex;
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{CStr, c_void},
     iter::Sum,
 };
 
@@ -329,6 +329,10 @@ impl Array {
                     res,
                     self.as_ptr(),
                     T::DTYPE.into(),
+                    mlx_sys::mlx_optional_bool {
+                        value: false,
+                        has_value: false,
+                    },
                     Stream::default().as_ptr(),
                 )
             })?;

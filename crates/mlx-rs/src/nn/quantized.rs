@@ -1,14 +1,13 @@
 use std::iter::once;
 
 use crate::{
-    array,
+    Array, array,
     error::Exception,
     module::{Module, ModuleParameters, Param},
     ops::indexing::IndexOp,
     ops::{self, dequantize, quantized_matmul, zeros},
     quantization::Quantizable,
     random::uniform,
-    Array,
 };
 use mlx_internal_macros::{Buildable, Builder};
 use mlx_macros::ModuleParameters;
@@ -22,17 +21,20 @@ use crate::nn::{Embedding, Linear};
 /// - `module`: The module to quantize.
 /// - `group_size`: The group size to use for the quantized weight. Default to [`Quantizable::DEFAULT_GROUP_SIZE`]
 /// - `bits`: The bit width to use for the quantized weight. Default to [`Quantizable::DEFAULT_BITS`]
-pub fn quantize<M>(
+/// - `mode`: The quantization mode (e.g. `"affine"`, `"mxfp4"`). Default to [`Quantizable::DEFAULT_MODE`]
+pub fn quantize<'a, M>(
     module: M,
     group_size: impl Into<Option<i32>>,
     bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<&'a str>>,
 ) -> Result<M::Quantized, M::QuantizationError>
 where
     M: Quantizable,
 {
     let group_size = group_size.into().unwrap_or(M::DEFAULT_GROUP_SIZE);
     let bits = bits.into().unwrap_or(M::DEFAULT_BITS);
-    module.try_into_quantized(group_size, bits)
+    let mode = mode.into().unwrap_or(M::DEFAULT_MODE);
+    module.try_into_quantized(group_size, bits, mode)
 }
 
 /// Builder for [`QuantizedEmbedding`]
@@ -56,6 +58,10 @@ pub struct QuantizedEmbeddingBuilder {
     /// Bits per parameter. Default to [`QuantizedEmbedding::DEFAULT_BITS`]
     #[builder(optional, default = QuantizedEmbedding::DEFAULT_BITS)]
     pub bits: i32,
+
+    /// Quantization mode. Default to [`QuantizedEmbedding::DEFAULT_MODE`]
+    #[builder(optional, default = QuantizedEmbedding::DEFAULT_MODE)]
+    pub mode: &'static str,
 }
 
 /// The same as ``Embedding`` but with a quantized weight matrix.
@@ -68,6 +74,9 @@ pub struct QuantizedEmbedding {
 
     /// Bits per parameter. Default to [`QuantizedEmbedding::DEFAULT_BITS`]
     pub bits: i32,
+
+    /// Quantization mode. Default to [`QuantizedEmbedding::DEFAULT_MODE`]
+    pub mode: String,
 
     /// Scales
     #[param]
@@ -96,7 +105,8 @@ impl QuantizedEmbeddingBuilder {
     pub fn build_with_weight(self, weight: Array) -> Result<QuantizedEmbedding, Exception> {
         let group_size = self.group_size;
         let bits = self.bits;
-        build_quantized_embedding_inner(weight, group_size, bits)
+        let mode = self.mode;
+        build_quantized_embedding_inner(weight, group_size, bits, mode)
     }
 }
 
@@ -104,8 +114,9 @@ fn build_quantized_embedding_inner(
     weight: Array,
     group_size: i32,
     bits: i32,
+    mode: &str,
 ) -> Result<QuantizedEmbedding, Exception> {
-    let (quantized_weight, scales, biases) = ops::quantize(&weight, group_size, bits)?;
+    let (quantized_weight, scales, biases) = ops::quantize(&weight, group_size, bits, mode, None)?;
 
     let inner = Embedding {
         weight: Param::new(quantized_weight),
@@ -114,6 +125,7 @@ fn build_quantized_embedding_inner(
     let mut qe = QuantizedEmbedding {
         group_size,
         bits,
+        mode: mode.to_string(),
         scales: Param::new(scales),
         biases: Param::new(biases),
         inner,
@@ -145,6 +157,9 @@ impl QuantizedEmbedding {
     /// Default bits
     pub const DEFAULT_BITS: i32 = 4;
 
+    /// Default quantization mode
+    pub const DEFAULT_MODE: &'static str = "affine";
+
     /// Convert an embedding layer to a quantized embedding layer.
     ///
     /// # Params
@@ -152,14 +167,17 @@ impl QuantizedEmbedding {
     /// - `embedding`: The embedding layer to convert.
     /// - `group_size`: The group size to use for the quantized weight. Default to [`QuantizedEmbedding::DEFAULT_GROUP_SIZE`]
     /// - `bits`: The bit width to use for the quantized weight. Default to [`QuantizedEmbedding::DEFAULT_BITS`]
-    pub fn try_from_embedding(
+    /// - `mode`: The quantization mode. Default to [`QuantizedEmbedding::DEFAULT_MODE`]
+    pub fn try_from_embedding<'a>(
         embedding: Embedding,
         group_size: impl Into<Option<i32>>,
         bits: impl Into<Option<i32>>,
+        mode: impl Into<Option<&'a str>>,
     ) -> Result<Self, Exception> {
         let group_size = group_size.into().unwrap_or(Self::DEFAULT_GROUP_SIZE);
         let bits = bits.into().unwrap_or(Self::DEFAULT_BITS);
-        build_quantized_embedding_inner(embedding.weight.value, group_size, bits)
+        let mode = mode.into().unwrap_or(Self::DEFAULT_MODE);
+        build_quantized_embedding_inner(embedding.weight.value, group_size, bits, mode)
     }
 
     /// Call the embedding layer as a linear layer.
@@ -175,6 +193,7 @@ impl QuantizedEmbedding {
             true,
             self.group_size,
             self.bits,
+            self.mode.as_str(),
         )
     }
 }
@@ -183,7 +202,7 @@ impl TryFrom<Embedding> for QuantizedEmbedding {
     type Error = Exception;
 
     fn try_from(embedding: Embedding) -> Result<Self, Self::Error> {
-        Self::try_from_embedding(embedding, None, None)
+        Self::try_from_embedding(embedding, None, None, None)
     }
 }
 
@@ -198,7 +217,15 @@ impl Module<&Array> for QuantizedEmbedding {
         let scales = self.scales.index(&x);
         let biases = self.biases.index(&x);
 
-        let out = dequantize(&w, &scales, &biases, self.group_size, self.bits)?;
+        let out = dequantize(
+            &w,
+            &scales,
+            &biases,
+            self.group_size,
+            self.bits,
+            self.mode.as_str(),
+            None,
+        )?;
 
         let ret_shape = s.iter().copied().chain(once(-1)).collect::<Vec<_>>();
         out.reshape(&ret_shape)
@@ -231,6 +258,10 @@ pub struct QuantizedLinearBuilder {
     #[builder(optional, default = QuantizedLinear::DEFAULT_BITS)]
     pub bits: i32,
 
+    /// Quantization mode. Default to [`QuantizedLinear::DEFAULT_MODE`]
+    #[builder(optional, default = QuantizedLinear::DEFAULT_MODE)]
+    pub mode: &'static str,
+
     /// Whether the linear layer has a bias. Default to [`Linear::DEFAULT_BIAS`]
     #[builder(optional, default = Linear::DEFAULT_BIAS)]
     pub bias: bool,
@@ -247,7 +278,7 @@ impl QuantizedLinearBuilder {
         weight: Array,
         bias: Option<Array>,
     ) -> Result<QuantizedLinear, Exception> {
-        build_quantized_linear_inner(weight, bias, self.group_size, self.bits)
+        build_quantized_linear_inner(weight, bias, self.group_size, self.bits, self.mode)
     }
 }
 
@@ -256,8 +287,9 @@ fn build_quantized_linear_inner(
     bias: Option<Array>,
     group_size: i32,
     bits: i32,
+    mode: &str,
 ) -> Result<QuantizedLinear, Exception> {
-    let (quantized_weight, scales, biases) = ops::quantize(&weight, group_size, bits)?;
+    let (quantized_weight, scales, biases) = ops::quantize(&weight, group_size, bits, mode, None)?;
 
     let inner = Linear {
         weight: Param::new(quantized_weight),
@@ -267,6 +299,7 @@ fn build_quantized_linear_inner(
     let mut ql = QuantizedLinear {
         group_size,
         bits,
+        mode: mode.to_string(),
         scales: Param::new(scales),
         biases: Param::new(biases),
         inner,
@@ -314,6 +347,9 @@ pub struct QuantizedLinear {
     /// Bits per parameter. Default to [`QuantizedLinear::DEFAULT_BITS`]
     pub bits: i32,
 
+    /// Quantization mode. Default to [`QuantizedLinear::DEFAULT_MODE`]
+    pub mode: String,
+
     /// Scales
     #[param]
     pub scales: Param<Array>,
@@ -334,6 +370,9 @@ impl QuantizedLinear {
     /// Default bits
     pub const DEFAULT_BITS: i32 = 4;
 
+    /// Default quantization mode
+    pub const DEFAULT_MODE: &'static str = "affine";
+
     /// Convert a linear layer to a quantized linear layer.
     ///
     /// # Params
@@ -341,14 +380,23 @@ impl QuantizedLinear {
     /// - `linear`: The linear layer to convert.
     /// - `group_size`: The group size to use for the quantized weight. Default to [`QuantizedLinear::DEFAULT_GROUP_SIZE`]
     /// - `bits`: The bit width to use for the quantized weight. Default to [`QuantizedLinear::DEFAULT_BITS`]
-    pub fn try_from_linear(
+    /// - `mode`: The quantization mode. Default to [`QuantizedLinear::DEFAULT_MODE`]
+    pub fn try_from_linear<'a>(
         linear: Linear,
         group_size: impl Into<Option<i32>>,
         bits: impl Into<Option<i32>>,
+        mode: impl Into<Option<&'a str>>,
     ) -> Result<Self, Exception> {
         let group_size = group_size.into().unwrap_or(Self::DEFAULT_GROUP_SIZE);
         let bits = bits.into().unwrap_or(Self::DEFAULT_BITS);
-        build_quantized_linear_inner(linear.weight.value, linear.bias.value, group_size, bits)
+        let mode = mode.into().unwrap_or(Self::DEFAULT_MODE);
+        build_quantized_linear_inner(
+            linear.weight.value,
+            linear.bias.value,
+            group_size,
+            bits,
+            mode,
+        )
     }
 }
 
@@ -356,7 +404,7 @@ impl TryFrom<Linear> for QuantizedLinear {
     type Error = Exception;
 
     fn try_from(linear: Linear) -> Result<Self, Self::Error> {
-        Self::try_from_linear(linear, None, None)
+        Self::try_from_linear(linear, None, None, None)
     }
 }
 
@@ -373,6 +421,7 @@ impl Module<&Array> for QuantizedLinear {
             true,
             self.group_size,
             self.bits,
+            self.mode.as_str(),
         )?;
         if let Some(bias) = &self.inner.bias.value {
             x = x.add(bias)?;

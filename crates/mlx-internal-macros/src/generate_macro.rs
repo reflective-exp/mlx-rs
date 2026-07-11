@@ -72,12 +72,13 @@ pub fn expand_generate_macro(
 
     // Check if the last optional argument is `stream`
     if let Some(arg) = parsed_args.last()
-        && arg.ident != "stream" {
-            return Err(syn::Error::new_spanned(
-                &item,
-                "the last optional argument must be `stream`",
-            ));
-        }
+        && arg.ident != "stream"
+    {
+        return Err(syn::Error::new_spanned(
+            &item,
+            "the last optional argument must be `stream`",
+        ));
+    }
     // Remove the last optional argument `stream`
     parsed_args.pop();
 

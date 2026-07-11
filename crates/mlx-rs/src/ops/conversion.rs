@@ -1,6 +1,21 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{error::Result, utils::guard::Guarded, Array, ArrayElement, Dtype, Stream};
+use crate::{Array, ArrayElement, Dtype, Stream, error::Result, utils::guard::Guarded};
+
+/// Convert an optional `copy` flag to the C `mlx_optional_bool`. When `None`, MLX decides whether to
+/// copy (the pre-0.32 behavior).
+fn optional_bool(value: Option<bool>) -> mlx_sys::mlx_optional_bool {
+    match value {
+        Some(value) => mlx_sys::mlx_optional_bool {
+            value,
+            has_value: true,
+        },
+        None => mlx_sys::mlx_optional_bool {
+            value: false, // ignored when has_value is false
+            has_value: false,
+        },
+    }
+}
 
 impl Array {
     /// Convert an array to FP8 (E4M3) format.
@@ -53,10 +68,19 @@ impl Array {
     }
 
     /// Same as `as_type` but with a [`Dtype`] argument.
+    ///
+    /// To control whether the array is copied when the dtype already matches, use the free
+    /// [`astype`] function with its `copy` argument.
     #[default_device]
     pub fn as_dtype_device(&self, dtype: Dtype, stream: impl AsRef<Stream>) -> Result<Array> {
         Array::try_from_op(|res| unsafe {
-            mlx_sys::mlx_astype(res, self.as_ptr(), dtype.into(), stream.as_ref().as_ptr())
+            mlx_sys::mlx_astype(
+                res,
+                self.as_ptr(),
+                dtype.into(),
+                optional_bool(None),
+                stream.as_ref().as_ptr(),
+            )
         })
     }
 
@@ -106,6 +130,36 @@ pub fn from_fp8_device(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     a.as_ref().from_fp8_device(dtype, stream)
+}
+
+/// Cast `a` to the given [`Dtype`].
+///
+/// Unlike the [`Array::as_dtype`] method, this exposes the `copy` flag added in MLX 0.32.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `dtype`: The target dtype.
+/// - `copy`: If `Some(true)`, always return a freshly allocated array. If `Some(false)`, reuse the
+///   input's buffer when the dtype already matches. When `None` (the default), MLX decides.
+#[generate_macro]
+#[default_device]
+pub fn astype_device(
+    a: impl AsRef<Array>,
+    dtype: Dtype,
+    #[optional] copy: impl Into<Option<bool>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let copy = optional_bool(copy.into());
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_astype(
+            res,
+            a.as_ref().as_ptr(),
+            dtype.into(),
+            copy,
+            stream.as_ref().as_ptr(),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -317,6 +371,15 @@ mod tests {
         bf16::from_f32(1.0),
         3
     );
+
+    #[test]
+    fn test_astype_with_copy() {
+        // The free `astype` exposes the `copy` flag; forcing a copy still yields the cast values.
+        let array = Array::from_slice(&[1i16, 2, 3], &[3]);
+        let converted = super::astype(&array, Dtype::Float32, Some(true)).unwrap();
+        assert_eq!(converted.dtype(), Dtype::Float32);
+        assert_eq!(converted.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
+    }
 
     #[test]
     fn test_view() {
