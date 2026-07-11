@@ -225,6 +225,7 @@ impl Module<&Array> for QuantizedEmbedding {
             self.bits,
             self.mode,
             None,
+            None,
         )?;
 
         let ret_shape = s.iter().copied().chain(once(-1)).collect::<Vec<_>>();

@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{
-    Array, Stream,
+    Array, Dtype, Stream,
     error::Result,
     utils::{VectorArray, guard::Guarded},
 };
@@ -60,11 +60,18 @@ fn optional_int(value: Option<i32>, default: i32) -> mlx_sys::mlx_optional_int {
     }
 }
 
-/// Helper to create a "no value" optional dtype
-fn optional_dtype_none() -> mlx_sys::mlx_optional_dtype {
-    mlx_sys::mlx_optional_dtype {
-        value: mlx_sys::mlx_dtype__MLX_FLOAT32, // default value, ignored when has_value is false
-        has_value: false,
+/// Helper to convert an optional [`Dtype`] to the C `mlx_optional_dtype`. When `None`, MLX picks the
+/// output dtype.
+fn optional_dtype(value: Option<Dtype>) -> mlx_sys::mlx_optional_dtype {
+    match value {
+        Some(dtype) => mlx_sys::mlx_optional_dtype {
+            value: dtype.into(),
+            has_value: true,
+        },
+        None => mlx_sys::mlx_optional_dtype {
+            value: mlx_sys::mlx_dtype__MLX_FLOAT32, // ignored when has_value is false
+            has_value: false,
+        },
     }
 }
 
@@ -176,6 +183,10 @@ pub fn quantized_matmul_device<'a>(
 ///
 /// For details, please see [this
 /// documentation](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.dequantize.html)
+///
+/// # Params
+///
+/// - `output_dtype`: The dtype of the dequantized output. When `None`, MLX picks the output dtype.
 #[allow(clippy::too_many_arguments)]
 #[generate_macro]
 #[default_device]
@@ -187,6 +198,7 @@ pub fn dequantize_device<'a>(
     #[optional] bits: impl Into<Option<i32>>,
     #[optional] mode: impl Into<Option<QuantizationMode>>,
     #[optional] global_scale: impl Into<Option<&'a Array>>,
+    #[optional] output_dtype: impl Into<Option<Dtype>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
@@ -194,6 +206,7 @@ pub fn dequantize_device<'a>(
     let mode = resolve_mode(mode.into());
     let biases = biases.into();
     let global_scale = global_scale.into();
+    let output_dtype = optional_dtype(output_dtype.into());
 
     <Array as Guarded>::try_from_op(|res| unsafe {
         mlx_sys::mlx_dequantize(
@@ -210,7 +223,7 @@ pub fn dequantize_device<'a>(
             global_scale
                 .map(|a| a.as_ptr())
                 .unwrap_or(mlx_sys::mlx_array_new()),
-            optional_dtype_none(),
+            output_dtype,
             stream.as_ref().as_ptr(),
         )
     })
@@ -387,10 +400,39 @@ mod tests {
             assert_eq!(scales.shape(), [128, 4]);
             assert_eq!(biases.shape(), [128, 4]);
 
-            let x_hat = dequantize(&x_q, &scales, &biases, 128, *i, None, None).unwrap();
+            let x_hat = dequantize(&x_q, &scales, &biases, 128, *i, None, None, None).unwrap();
             let max_diff = ((&x - &x_hat).abs().unwrap().max(None).unwrap()).item::<f32>();
             assert!(max_diff <= 127.0 / (1 << i) as f32);
         }
+    }
+
+    #[test]
+    fn test_dequantize_output_dtype() {
+        use crate::Dtype;
+
+        let x1 = Array::ones::<f32>(&[128, 1]).unwrap();
+        let x2 = expand_dims(Array::arange::<_, f32>(0, 512, None).unwrap(), 0).unwrap();
+        let x = x1 * x2;
+
+        let (x_q, scales, biases) = quantize(&x, 128, 4, None, None).unwrap();
+
+        // Without an output dtype, dequantize returns float32.
+        let default_hat = dequantize(&x_q, &scales, &biases, 128, 4, None, None, None).unwrap();
+        assert_eq!(default_hat.dtype(), Dtype::Float32);
+
+        // Requesting float16 as the output dtype is honored.
+        let f16_hat = dequantize(
+            &x_q,
+            &scales,
+            &biases,
+            128,
+            4,
+            None,
+            None,
+            Some(Dtype::Float16),
+        )
+        .unwrap();
+        assert_eq!(f16_hat.dtype(), Dtype::Float16);
     }
 
     // Test adapted from Python test `test_quantized.py/test_qmm`
@@ -409,7 +451,7 @@ mod tests {
         let w = random::normal::<f32>(&[k, n], None, None, None).unwrap() * scale;
 
         let (w_q, scales, biases) = quantize(&w, group_size, bits, None, None).unwrap();
-        let w_hat = dequantize(&w_q, &scales, &biases, group_size, bits, None, None).unwrap();
+        let w_hat = dequantize(&w_q, &scales, &biases, group_size, bits, None, None, None).unwrap();
 
         // Test with biases
         let y_q =
@@ -440,7 +482,7 @@ mod tests {
         ) -> (Array, Array, Array, Array) {
             let (w_q, scales, biases) = quantize(w, group_size, bits, None, None).unwrap();
             let mut w_hat =
-                dequantize(&w_q, &scales, &biases, group_size, bits, None, None).unwrap();
+                dequantize(&w_q, &scales, &biases, group_size, bits, None, None, None).unwrap();
             if transpose {
                 w_hat = swap_axes(&w_hat, -1, -2).unwrap();
             }

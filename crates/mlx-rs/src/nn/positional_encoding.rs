@@ -301,7 +301,9 @@ impl Alibi {
             .negative()?;
 
         let slope = Self::slope(key.num_heads)?;
-        let mask = distance_matrix.multiply(&slope)?.as_dtype(key.dtype)?;
+        let mask = distance_matrix
+            .multiply(&slope)?
+            .as_dtype(key.dtype, None)?;
 
         ALIBI_CACHE.with(|cache| {
             cache.borrow_mut().insert(key, mask.clone());
@@ -508,7 +510,7 @@ mod tests {
         assert_eq!(y.shape(), shape);
         assert_eq!(y.dtype(), Dtype::Float32);
 
-        let x2 = x.as_dtype(Dtype::Float16).unwrap();
+        let x2 = x.as_dtype(Dtype::Float16, None).unwrap();
         let input = AlibiInput::from(&x2);
         let y = alibi.forward(input).unwrap();
         assert_eq!(y.dtype(), Dtype::Float16);

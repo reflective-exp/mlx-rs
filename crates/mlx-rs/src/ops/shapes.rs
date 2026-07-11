@@ -781,7 +781,7 @@ pub fn pad_device<'a>(
     let value = value
         .into()
         .map(Ok)
-        .unwrap_or_else(|| Array::from_int(0).as_dtype(a.dtype()))?;
+        .unwrap_or_else(|| Array::from_int(0).as_dtype(a.dtype(), None))?;
     let mode = mode.into().unwrap_or(PadMode::Constant);
 
     Array::try_from_op(|res| unsafe {
@@ -1306,18 +1306,18 @@ mod tests {
         assert!(stack_axis(&empty, 0).is_err());
 
         let x = Array::from_slice(&[1, 2, 3], &[3])
-            .as_dtype(Dtype::Float16)
+            .as_dtype(Dtype::Float16, None)
             .unwrap();
         let y = Array::from_slice(&[4, 5, 6], &[3])
-            .as_dtype(Dtype::Int32)
+            .as_dtype(Dtype::Int32, None)
             .unwrap();
         assert_eq!(stack_axis(&[x, y], 0).unwrap().dtype(), Dtype::Float16);
 
         let x = Array::from_slice(&[1, 2, 3], &[3])
-            .as_dtype(Dtype::Int32)
+            .as_dtype(Dtype::Int32, None)
             .unwrap();
         let y = Array::from_slice(&[4, 5, 6, 7], &[4])
-            .as_dtype(Dtype::Int32)
+            .as_dtype(Dtype::Int32, None)
             .unwrap();
         assert!(stack_axis(&[x, y], 0).is_err());
     }

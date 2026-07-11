@@ -949,7 +949,9 @@ mod tests {
 
     #[test]
     fn new_scalar_array_from_f64() {
-        let array = Array::from_f64(3.14).as_dtype(Dtype::Float64).unwrap();
+        let array = Array::from_f64(3.14)
+            .as_dtype(Dtype::Float64, None)
+            .unwrap();
         float_eq::assert_float_eq!(array.item::<f64>(), 3.14, abs <= 1e-5);
         assert_eq!(array.item_size(), 8);
         assert_eq!(array.size(), 1);

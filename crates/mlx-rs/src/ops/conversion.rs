@@ -55,7 +55,7 @@ impl Array {
     /// use mlx_rs::{Array, Dtype};
     ///
     /// let array = Array::from_slice(&[1i16,2,3], &[3]);
-    /// let mut new_array = array.as_type::<f32>().unwrap();
+    /// let mut new_array = array.as_type::<f32>(None).unwrap();
     ///
     /// assert_eq!(new_array.dtype(), Dtype::Float32);
     /// assert_eq!(new_array.shape(), &[3]);
@@ -63,22 +63,35 @@ impl Array {
     /// assert_eq!(new_array.as_slice::<f32>(), &[1.0,2.0,3.0]);
     /// ```
     #[default_device]
-    pub fn as_type_device<T: ArrayElement>(&self, stream: impl AsRef<Stream>) -> Result<Array> {
-        self.as_dtype_device(T::DTYPE, stream)
+    pub fn as_type_device<T: ArrayElement>(
+        &self,
+        copy: impl Into<Option<bool>>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        self.as_dtype_device(T::DTYPE, copy, stream)
     }
 
     /// Same as `as_type` but with a [`Dtype`] argument.
     ///
-    /// To control whether the array is copied when the dtype already matches, use the free
-    /// [`astype`] function with its `copy` argument.
+    /// # Params
+    ///
+    /// - `dtype`: The target dtype.
+    /// - `copy`: If `Some(true)`, always return a freshly allocated array. If `Some(false)`, reuse
+    ///   the input's buffer when the dtype already matches. When `None`, MLX decides.
     #[default_device]
-    pub fn as_dtype_device(&self, dtype: Dtype, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn as_dtype_device(
+        &self,
+        dtype: Dtype,
+        copy: impl Into<Option<bool>>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        let copy = optional_bool(copy.into());
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_astype(
                 res,
                 self.as_ptr(),
                 dtype.into(),
-                optional_bool(None),
+                copy,
                 stream.as_ref().as_ptr(),
             )
         })
@@ -134,7 +147,8 @@ pub fn from_fp8_device(
 
 /// Cast `a` to the given [`Dtype`].
 ///
-/// Unlike the [`Array::as_dtype`] method, this exposes the `copy` flag added in MLX 0.32.
+/// This is the free-function form of [`Array::as_dtype`]; both expose the `copy` flag added in
+/// MLX 0.32.
 ///
 /// # Params
 ///
@@ -175,7 +189,7 @@ mod tests {
                 #[test]
                 fn [<test_as_type_ $src_type _ $dst_type>]() {
                     let array = Array::from_slice(&[$src_val; $len], &[$len as i32]);
-                    let new_array = array.as_type::<$dst_type>().unwrap();
+                    let new_array = array.as_type::<$dst_type>(None).unwrap();
 
                     assert_eq!(new_array.dtype(), $dst_type::DTYPE);
                     assert_eq!(new_array.shape(), &[3]);
@@ -377,6 +391,24 @@ mod tests {
         // The free `astype` exposes the `copy` flag; forcing a copy still yields the cast values.
         let array = Array::from_slice(&[1i16, 2, 3], &[3]);
         let converted = super::astype(&array, Dtype::Float32, Some(true)).unwrap();
+        assert_eq!(converted.dtype(), Dtype::Float32);
+        assert_eq!(converted.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_as_dtype_with_copy() {
+        // The `as_dtype` method also exposes the `copy` flag; forcing a copy still yields the cast values.
+        let array = Array::from_slice(&[1i16, 2, 3], &[3]);
+        let converted = array.as_dtype(Dtype::Float32, Some(true)).unwrap();
+        assert_eq!(converted.dtype(), Dtype::Float32);
+        assert_eq!(converted.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_as_type_with_copy() {
+        // The `as_type` method also exposes the `copy` flag; forcing a copy still yields the cast values.
+        let array = Array::from_slice(&[1i16, 2, 3], &[3]);
+        let converted = array.as_type::<f32>(Some(true)).unwrap();
         assert_eq!(converted.dtype(), Dtype::Float32);
         assert_eq!(converted.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
     }

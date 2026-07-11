@@ -362,15 +362,15 @@ mod tests {
                 let H = 24;
                 let q = normal::<f32>(&[B, H, seq_len, Dk], None, None, None)
                     .unwrap()
-                    .as_dtype(dtype)
+                    .as_dtype(dtype, None)
                     .unwrap();
                 let k = normal::<f32>(&[B, H, seq_len, Dk], None, None, None)
                     .unwrap()
-                    .as_dtype(dtype)
+                    .as_dtype(dtype, None)
                     .unwrap();
                 let v = normal::<f32>(&[B, H, seq_len, Dk], None, None, None)
                     .unwrap()
-                    .as_dtype(dtype)
+                    .as_dtype(dtype, None)
                     .unwrap();
 
                 let result = scaled_dot_product_attention(q, k, v, scale, None, None).unwrap();

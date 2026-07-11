@@ -112,7 +112,7 @@ mod tests {
     // Helper macro to test conversion between Array and TensorView
     macro_rules! assert_conversion {
         ($arr:expr, $dtype:expr) => {
-            let arr = $arr.as_dtype($dtype).unwrap();
+            let arr = $arr.as_dtype($dtype, None).unwrap();
             let tensor = TensorView::try_from(&arr).unwrap();
             let arr2 = Array::try_from(tensor).unwrap();
 
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_conversion_complex64() {
-        let arr = array!([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).as_type::<complex64>().unwrap();
+        let arr = array!([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).as_type::<complex64>(None).unwrap();
         let tensor = TensorView::try_from(&arr);
         assert!(tensor.is_err());
     }

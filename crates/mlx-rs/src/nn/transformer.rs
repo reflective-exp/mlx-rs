@@ -147,7 +147,7 @@ impl MultiHeadAttention {
         let left = expand_dims(&indices, 1)?;
         let right = expand_dims(&indices, 0)?;
         let mask = left.lt(right)?;
-        let mask = mask.as_type::<T>()?.multiply(array!(T::min_value()))?; // TODO: replace with f32::MIN?
+        let mask = mask.as_type::<T>(None)?.multiply(array!(T::min_value()))?; // TODO: replace with f32::MIN?
         Ok(mask)
     }
 }
@@ -242,7 +242,7 @@ where
         let scale = f32::sqrt(1.0 / queries.dim(-1) as f32);
         let mut scores = (queries * scale).matmul(&keys)?;
         if let Some(mask) = input.mask {
-            scores = scores.add(mask.as_dtype(scores.dtype())?)?;
+            scores = scores.add(mask.as_dtype(scores.dtype(), None)?)?;
         }
         scores = softmax_axis(&scores, -1, None)?;
         let value_hat = matmul(&scores, &values)?

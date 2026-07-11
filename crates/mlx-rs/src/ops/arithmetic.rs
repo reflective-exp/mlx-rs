@@ -2240,7 +2240,7 @@ mod tests {
         assert_eq!(floor(&x).unwrap().item::<f32>(), NEG_INF);
         assert_eq!(ceil(&x).unwrap().item::<f32>(), NEG_INF);
 
-        let x = array!([1.0, 1.0]).as_type::<complex64>().unwrap();
+        let x = array!([1.0, 1.0]).as_type::<complex64>(None).unwrap();
         assert!(floor(&x).is_err());
         assert!(ceil(&x).is_err());
     }
