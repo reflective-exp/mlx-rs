@@ -1,22 +1,8 @@
 use crate::error::Result;
 use crate::utils::guard::Guarded;
+use crate::utils::optional_dtype;
 use crate::{Array, Dtype, Stream};
 use mlx_internal_macros::{default_device, generate_macro};
-
-/// Convert an optional accumulation [`Dtype`] to the C `mlx_optional_dtype`. When `None`, MLX picks
-/// the accumulation dtype (the pre-0.32 behavior).
-fn optional_dtype(dtype: Option<Dtype>) -> mlx_sys::mlx_optional_dtype {
-    match dtype {
-        Some(dtype) => mlx_sys::mlx_optional_dtype {
-            value: dtype.into(),
-            has_value: true,
-        },
-        None => mlx_sys::mlx_optional_dtype {
-            value: mlx_sys::mlx_dtype__MLX_FLOAT32, // ignored when has_value is false
-            has_value: false,
-        },
-    }
-}
 
 impl Array {
     /// Return the cumulative maximum of the elements along the given axis returning an error if the inputs are invalid.

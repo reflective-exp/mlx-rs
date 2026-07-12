@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, rc::Rc};
+use std::{borrow::Cow, rc::Rc};
 
 use mlx_internal_macros::{Buildable, generate_builder};
 
@@ -8,7 +8,7 @@ use crate::{
     ops::{
         matmul, maximum, mean, mean_axes, minimum, rsqrt, sqrt, square, zeros_dtype, zeros_like,
     },
-    utils::Updatable,
+    utils::{Updatable, try_get_mut_or_insert_with},
 };
 
 use super::*;
@@ -301,18 +301,6 @@ impl Adafactor {
     pub const DEFAULT_BETA1: Option<f32> = None;
 }
 
-fn get_mut_or_insert_with<'a, T, E>(
-    map: &'a mut HashMap<Rc<str>, T>,
-    key: &Rc<str>,
-    f: impl FnOnce() -> Result<T, E>,
-) -> Result<&'a mut T, E> {
-    if !map.contains_key(key) {
-        map.insert(key.clone(), f()?);
-    }
-
-    Ok(map.get_mut(key).unwrap())
-}
-
 fn compute_lr(
     relative_step: bool,
     warmup_init: bool,
@@ -362,7 +350,7 @@ impl Optimizer for Adafactor {
         parameter: &mut Array,
     ) -> crate::error::Result<()> {
         let beta1_is_some = self.beta1.is_some();
-        let state = get_mut_or_insert_with(&mut self.state, key, || {
+        let state = try_get_mut_or_insert_with(&mut self.state, key, || {
             AdafactorState::new(parameter, beta1_is_some)
         })?;
 

@@ -9,6 +9,37 @@ use crate::{
 use mlx_internal_macros::{Buildable, Builder};
 use mlx_macros::ModuleParameters;
 
+/// Build the optional trainable `(weight, bias)` pair shared by the affine normalization layers:
+/// `weight` initialized to ones and `bias` to zeros over `dimensions`, or `(None, None)` when
+/// `affine` is false.
+fn affine_weight_bias(
+    dimensions: i32,
+    affine: bool,
+) -> Result<(Option<Array>, Option<Array>), Exception> {
+    if affine {
+        Ok((
+            Some(ones::<f32>(&[dimensions])?),
+            Some(zeros::<f32>(&[dimensions])?),
+        ))
+    } else {
+        Ok((None, None))
+    }
+}
+
+/// Apply the optional affine transform `weight * x + bias` used at the end of the normalization
+/// layers' `forward`, passing `x` through unchanged when either parameter is absent.
+fn apply_affine(
+    x: Array,
+    weight: &Option<Array>,
+    bias: &Option<Array>,
+) -> Result<Array, Exception> {
+    if let (Some(weight), Some(bias)) = (weight, bias) {
+        weight.multiply(&x)?.add(bias)
+    } else {
+        Ok(x)
+    }
+}
+
 fn instance_norm(x: &Array, axes: &[i32], eps: &Array) -> Result<Array, Exception> {
     // Compute stats
     let mean = x.mean_axes(axes, true)?;
@@ -44,16 +75,7 @@ pub struct InstanceNormBuilder {
 
 fn build_instance_norm(builder: InstanceNormBuilder) -> Result<InstanceNorm, Exception> {
     let eps = builder.eps;
-    let affine = builder.affine;
-
-    let (weight, bias) = if affine {
-        (
-            Some(ones::<f32>(&[builder.dimensions])?),
-            Some(zeros::<f32>(&[builder.dimensions])?),
-        )
-    } else {
-        (None, None)
-    };
+    let (weight, bias) = affine_weight_bias(builder.dimensions, builder.affine)?;
 
     Ok(InstanceNorm {
         dimensions: builder.dimensions,
@@ -104,11 +126,7 @@ impl Module<&Array> for InstanceNorm {
 
         let x = instance_norm(x, &reduction_axes, &self.eps)?;
 
-        if let (Some(weight), Some(bias)) = (self.weight.as_ref(), self.bias.as_ref()) {
-            weight.multiply(x)?.add(bias)
-        } else {
-            Ok(x)
-        }
+        apply_affine(x, self.weight.as_ref(), self.bias.as_ref())
     }
 
     fn training_mode(&mut self, _mode: bool) {}
@@ -138,16 +156,7 @@ pub struct LayerNormBuilder {
 
 fn build_layer_norm(builder: LayerNormBuilder) -> Result<LayerNorm, Exception> {
     let eps = builder.eps;
-    let affine = builder.affine;
-
-    let (weight, bias) = if affine {
-        (
-            Some(ones::<f32>(&[builder.dimensions])?),
-            Some(zeros::<f32>(&[builder.dimensions])?),
-        )
-    } else {
-        (None, None)
-    };
+    let (weight, bias) = affine_weight_bias(builder.dimensions, builder.affine)?;
 
     Ok(LayerNorm {
         dimensions: builder.dimensions,
@@ -305,17 +314,8 @@ pub struct GroupNormBuilder {
 
 fn build_group_norm(builder: GroupNormBuilder) -> Result<GroupNorm, Exception> {
     let eps = builder.eps;
-    let affine = builder.affine;
     let pytorch_compatible = builder.pytorch_compatible;
-
-    let (weight, bias) = if affine {
-        (
-            Some(ones::<f32>(&[builder.dimensions])?),
-            Some(zeros::<f32>(&[builder.dimensions])?),
-        )
-    } else {
-        (None, None)
-    };
+    let (weight, bias) = affine_weight_bias(builder.dimensions, builder.affine)?;
 
     Ok(GroupNorm {
         group_count: builder.group_count,
@@ -423,11 +423,7 @@ impl Module<&Array> for GroupNorm {
             self.group_norm(x)?
         };
 
-        if let (Some(weight), Some(bias)) = (self.weight.as_ref(), self.bias.as_ref()) {
-            weight.multiply(&x)?.add(bias)
-        } else {
-            Ok(x)
-        }
+        apply_affine(x, self.weight.as_ref(), self.bias.as_ref())
     }
 
     fn training_mode(&mut self, _mode: bool) {}
@@ -468,17 +464,8 @@ pub struct BatchNormBuilder {
 fn build_batch_norm(builder: BatchNormBuilder) -> Result<BatchNorm, Exception> {
     let eps = builder.eps;
     let momentum = builder.momentum;
-    let affine = builder.affine;
     let track_running_stats = builder.track_running_stats;
-
-    let (weight, bias) = if affine {
-        (
-            Some(ones::<f32>(&[builder.feature_count])?),
-            Some(zeros::<f32>(&[builder.feature_count])?),
-        )
-    } else {
-        (None, None)
-    };
+    let (weight, bias) = affine_weight_bias(builder.feature_count, builder.affine)?;
 
     let (running_mean, running_var) = if track_running_stats {
         (
@@ -605,11 +592,7 @@ impl Module<&Array> for BatchNorm {
             .subtract(&mean)?
             .multiply(rsqrt(&variance.add(&self.eps)?)?)?;
 
-        if let (Some(weight), Some(bias)) = (self.weight.as_ref(), self.bias.as_ref()) {
-            weight.multiply(&x)?.add(bias)
-        } else {
-            Ok(x)
-        }
+        apply_affine(x, self.weight.as_ref(), self.bias.as_ref())
     }
 
     fn training_mode(&mut self, mode: bool) {

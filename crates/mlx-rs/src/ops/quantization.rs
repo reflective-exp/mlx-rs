@@ -5,7 +5,7 @@ use mlx_internal_macros::{default_device, generate_macro};
 use crate::{
     Array, Dtype, Stream,
     error::Result,
-    utils::{VectorArray, guard::Guarded},
+    utils::{VectorArray, guard::Guarded, optional_dtype, optional_int},
 };
 
 const DEFAULT_GROUP_SIZE: i32 = 64;
@@ -50,29 +50,6 @@ impl From<QuantizationMode> for &'static CStr {
 /// [`QuantizationMode::Affine`].
 fn resolve_mode(mode: Option<QuantizationMode>) -> &'static CStr {
     mode.unwrap_or_default().into()
-}
-
-/// Helper to convert Option<i32> to mlx_optional_int
-fn optional_int(value: Option<i32>, default: i32) -> mlx_sys::mlx_optional_int {
-    mlx_sys::mlx_optional_int {
-        value: value.unwrap_or(default),
-        has_value: value.is_some(),
-    }
-}
-
-/// Helper to convert an optional [`Dtype`] to the C `mlx_optional_dtype`. When `None`, MLX picks the
-/// output dtype.
-fn optional_dtype(value: Option<Dtype>) -> mlx_sys::mlx_optional_dtype {
-    match value {
-        Some(dtype) => mlx_sys::mlx_optional_dtype {
-            value: dtype.into(),
-            has_value: true,
-        },
-        None => mlx_sys::mlx_optional_dtype {
-            value: mlx_sys::mlx_dtype__MLX_FLOAT32, // ignored when has_value is false
-            has_value: false,
-        },
-    }
 }
 
 /// Quantize the matrix `w` using `bits` bits per element.

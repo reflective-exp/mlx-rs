@@ -15,6 +15,9 @@ pub(crate) const FAILURE: i32 = 1;
 
 pub(crate) mod guard;
 pub(crate) mod io;
+pub(crate) mod optional;
+
+pub(crate) use optional::{optional_bool, optional_dtype, optional_int};
 
 thread_local! {
     /// A reusable empty `mlx_array` used as the "absent" sentinel for optional
@@ -393,6 +396,20 @@ pub(crate) fn get_mut_or_insert_with<'a, T>(
     }
 
     map.get_mut(key).unwrap()
+}
+
+/// Fallible variant of [`get_mut_or_insert_with`]: the initializer may fail, in which case nothing
+/// is inserted and the error is propagated.
+pub(crate) fn try_get_mut_or_insert_with<'a, T, E>(
+    map: &'a mut HashMap<Rc<str>, T>,
+    key: &Rc<str>,
+    f: impl FnOnce() -> Result<T, E>,
+) -> Result<&'a mut T, E> {
+    if !map.contains_key(key) {
+        map.insert(key.clone(), f()?);
+    }
+
+    Ok(map.get_mut(key).unwrap())
 }
 
 /// Helper trait for compiling a function that takes a Module and/or an Optimizer.

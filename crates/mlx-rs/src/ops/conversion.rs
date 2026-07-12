@@ -1,21 +1,10 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{Array, ArrayElement, Dtype, Stream, error::Result, utils::guard::Guarded};
-
-/// Convert an optional `copy` flag to the C `mlx_optional_bool`. When `None`, MLX decides whether to
-/// copy (the pre-0.32 behavior).
-fn optional_bool(value: Option<bool>) -> mlx_sys::mlx_optional_bool {
-    match value {
-        Some(value) => mlx_sys::mlx_optional_bool {
-            value,
-            has_value: true,
-        },
-        None => mlx_sys::mlx_optional_bool {
-            value: false, // ignored when has_value is false
-            has_value: false,
-        },
-    }
-}
+use crate::{
+    Array, ArrayElement, Dtype, Stream,
+    error::Result,
+    utils::{guard::Guarded, optional_bool},
+};
 
 impl Array {
     /// Convert an array to FP8 (E4M3) format.
