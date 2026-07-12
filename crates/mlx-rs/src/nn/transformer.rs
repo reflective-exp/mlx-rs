@@ -266,12 +266,17 @@ where
         let scale = f32::sqrt(1.0 / queries.dim(-1) as f32);
 
         // The mask is added to the scores inside the fused kernel, so it must
-        // share the query dtype.
-        let mask = input
-            .mask
-            .map(|mask| mask.as_dtype(queries.dtype(), None))
-            .transpose()?;
-        let mask = mask.as_ref().map(ScaledDotProductAttentionMask::from);
+        // share the query dtype. Only pay for the cast when the caller's mask
+        // dtype actually differs; otherwise pass it through untouched.
+        let mask = match input.mask {
+            Some(mask) if mask.dtype() != queries.dtype() => {
+                Some(Cow::Owned(mask.as_dtype(queries.dtype(), None)?))
+            }
+            other => other.map(Cow::Borrowed),
+        };
+        let mask = mask
+            .as_ref()
+            .map(|mask| ScaledDotProductAttentionMask::from(mask.as_ref()));
 
         let value_hat = scaled_dot_product_attention(&queries, &keys, &values, scale, mask, None)?
             .transpose_axes(&[0, 2, 1, 3])?
@@ -1238,6 +1243,29 @@ mod tests {
             result.sum(None).unwrap().item::<f32>(),
             -4.923_282_6,
             abs <= 0.098_465_65
+        );
+    }
+
+    #[test]
+    fn test_multi_head_attention_mask_dtype_is_converted() {
+        seed(102).unwrap();
+        let x = uniform::<_, f32>(0.0, 1.0, &[2, 8, 16], None).unwrap();
+        let mut attention = MultiHeadAttention::new(16, 4).unwrap();
+
+        let mask_f32 = MultiHeadAttention::create_additive_causal_mask::<f32>(8).unwrap();
+        let expected = attention.forward((&x, &x, &x, &mask_f32)).unwrap();
+
+        // A mask whose dtype differs from the queries must be converted (not
+        // rejected) and yield the same result as a matching-dtype mask.
+        let mask_f16 = mask_f32.as_type::<half::f16>(None).unwrap();
+        assert_ne!(mask_f16.dtype(), x.dtype());
+        let converted = attention.forward((&x, &x, &x, &mask_f16)).unwrap();
+
+        assert_eq!(converted.shape(), expected.shape());
+        assert_float_eq!(
+            converted.sum(None).unwrap().item::<f32>(),
+            expected.sum(None).unwrap().item::<f32>(),
+            abs <= 0.05
         );
     }
 }
