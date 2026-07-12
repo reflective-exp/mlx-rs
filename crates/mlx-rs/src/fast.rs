@@ -126,7 +126,7 @@ impl ScaledDotProductAttentionMask<'_> {
         match self {
             ScaledDotProductAttentionMask::Array(mask) => (DEFAULT_MASK_MODE, mask.as_ptr()),
             ScaledDotProductAttentionMask::Causal => {
-                (CAUSAL_MASK_MODE, unsafe { mlx_sys::mlx_array_new() })
+                (CAUSAL_MASK_MODE, crate::utils::empty_array_ptr())
             }
         }
     }
@@ -153,7 +153,7 @@ pub fn scaled_dot_product_attention_device<'a>(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let (mask_mode, mask_arr) = mask.into_option().map_or_else(
-        || (DEFAULT_MASK_MODE, unsafe { mlx_sys::mlx_array_new() }),
+        || (DEFAULT_MASK_MODE, crate::utils::empty_array_ptr()),
         |m| m.as_mode_and_mask(),
     );
 
