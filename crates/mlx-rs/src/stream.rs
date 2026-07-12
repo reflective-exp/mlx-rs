@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{cell::RefCell, ffi::CStr};
 
 use crate::device::Device;
@@ -5,8 +6,20 @@ use crate::error::Result;
 use crate::utils::SUCCESS;
 use crate::utils::guard::Guarded;
 
+/// Bumped every time the default device changes (via [`Device::set_default`]),
+/// which is the only thing that changes what the default stream resolves to.
+/// Reading it is a cheap atomic load that gates every thread's cached default
+/// stream, so a changed default device invalidates the cache on all threads.
+pub(crate) static DEFAULT_STREAM_GENERATION: AtomicU64 = AtomicU64::new(0);
+
 thread_local! {
     static TASK_LOCAL_DEFAULT_STREAM: RefCell<Option<Stream>> = const { RefCell::new(None) };
+
+    /// The default stream resolved for this thread, tagged with the generation
+    /// it was resolved under. A cache hit hands out a clone instead of
+    /// re-resolving the default device and stream through several FFI calls on
+    /// every operation.
+    static CACHED_DEFAULT_STREAM: RefCell<Option<(u64, Stream)>> = const { RefCell::new(None) };
 }
 
 /// Gets the task local default stream.
@@ -142,7 +155,27 @@ impl Stream {
     }
 
     /// Create a new stream on the default device. Panics if fails.
+    ///
+    /// The default stream is cached per thread and only re-resolved when the
+    /// default device changes, so repeated calls avoid the FFI round-trip
+    /// through [`Self::resolve_default`].
     pub fn new() -> Stream {
+        let generation = DEFAULT_STREAM_GENERATION.load(Ordering::Relaxed);
+        CACHED_DEFAULT_STREAM.with_borrow_mut(|cache| {
+            if let Some((cached_generation, stream)) = cache
+                && *cached_generation == generation
+            {
+                return stream.clone();
+            }
+            let stream = Self::resolve_default();
+            *cache = Some((generation, stream.clone()));
+            stream
+        })
+    }
+
+    /// Resolve the default stream on the default device through FFI, bypassing
+    /// the per-thread cache.
+    fn resolve_default() -> Stream {
         unsafe {
             let mut dev = mlx_sys::mlx_device_new();
             // SAFETY: mlx_get_default_device internally never throws an error
@@ -261,6 +294,21 @@ mod tests {
             assert_eq!(task_local_stream_0, task_local_stream_1);
             assert_ne!(task_local_stream_0, cpu_stream);
         });
+    }
+
+    #[test]
+    fn test_new_reflects_default_device_change() {
+        // Repeated calls under the same default device return the cached stream.
+        Device::set_default(&Device::cpu());
+        let cpu_stream = Stream::new();
+        assert_eq!(cpu_stream, Stream::new());
+
+        // Changing the default device invalidates the cache, so the next call
+        // resolves the new device's stream rather than the stale cached one.
+        Device::set_default(&Device::gpu());
+        let gpu_stream = Stream::new();
+        assert_ne!(cpu_stream, gpu_stream);
+        assert_eq!(gpu_stream, Stream::new());
     }
 
     #[test]

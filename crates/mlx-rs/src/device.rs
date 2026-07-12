@@ -70,6 +70,9 @@ impl Device {
     /// By default, this is `gpu()`.
     pub fn set_default(device: &Device) {
         unsafe { mlx_sys::mlx_set_default_device(device.c_device) };
+        // Invalidate every thread's cached default stream, since the default
+        // stream now resolves to this device.
+        crate::stream::DEFAULT_STREAM_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn describe(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
