@@ -2,12 +2,10 @@ use std::ffi::CString;
 
 use mlx_internal_macros::{default_device, generate_macro};
 
+use crate::error::{Exception, Result};
 use crate::utils::VectorArray;
 use crate::utils::guard::Guarded;
-use crate::{
-    Array, Stream,
-    error::{Exception, Result},
-};
+use crate::{Array, Stream};
 
 impl Array {
     /// Extract a diagonal or construct a diagonal matrix.

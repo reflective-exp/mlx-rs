@@ -1,14 +1,10 @@
-use crate::{
-    Array, array,
-    error::Exception,
-    macros::ModuleParameters,
-    module::Module,
-    ops::{
-        abs, broadcast_to, ceil, clip, expand_dims_axes, floor,
-        indexing::{ArrayIndex, ArrayIndexOp, Ellipsis, IndexOp, NewAxis, TryIndexOp},
-    },
-    transforms::compile::compile,
-};
+use crate::error::Exception;
+use crate::macros::ModuleParameters;
+use crate::module::Module;
+use crate::ops::indexing::{ArrayIndex, ArrayIndexOp, Ellipsis, IndexOp, NewAxis, TryIndexOp};
+use crate::ops::{abs, broadcast_to, ceil, clip, expand_dims_axes, floor};
+use crate::transforms::compile::compile;
+use crate::{Array, array};
 
 use crate::utils::SingleOrVec;
 

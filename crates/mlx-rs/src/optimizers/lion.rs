@@ -1,9 +1,7 @@
 use mlx_internal_macros::{Buildable, generate_builder};
 
-use crate::{
-    Array, array,
-    utils::{Updatable, get_mut_or_insert_with},
-};
+use crate::utils::{Updatable, get_mut_or_insert_with};
+use crate::{Array, array};
 
 use super::*;
 

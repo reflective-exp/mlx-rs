@@ -6,18 +6,14 @@
 
 // TODO: there's plenty boilerplate code here but it's not clear how to reduce it
 
-use std::{
-    cell::{Cell, RefCell},
-    marker::PhantomData,
-    rc::Rc,
-};
+use std::cell::{Cell, RefCell};
+use std::marker::PhantomData;
+use std::rc::Rc;
 
-use crate::{
-    Array,
-    error::Exception,
-    transforms::compile::{CompiledState, type_id_to_usize},
-    utils::Updatable,
-};
+use crate::Array;
+use crate::error::Exception;
+use crate::transforms::compile::{CompiledState, type_id_to_usize};
+use crate::utils::Updatable;
 
 use super::{Closure, Compiled, Guarded, VectorArray, update_by_replace_with_ref_to_new_array};
 

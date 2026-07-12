@@ -2,11 +2,10 @@ use std::ffi::CStr;
 
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{
-    Array, Dtype, Stream,
-    error::Result,
-    utils::{VectorArray, guard::Guarded, optional_dtype, optional_int},
-};
+use crate::error::Result;
+use crate::utils::guard::Guarded;
+use crate::utils::{VectorArray, optional_dtype, optional_int};
+use crate::{Array, Dtype, Stream};
 
 const DEFAULT_GROUP_SIZE: i32 = 64;
 const DEFAULT_BITS: i32 = 4;

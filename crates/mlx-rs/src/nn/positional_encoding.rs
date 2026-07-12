@@ -1,15 +1,10 @@
 use std::{cell::RefCell, collections::HashMap};
 
-use crate::{
-    Array, Dtype, array,
-    error::Exception,
-    module::{Module, Param},
-    ops::{
-        arange, concatenate_axis, exp,
-        indexing::{NewAxis, TryIndexOp},
-        log,
-    },
-};
+use crate::error::Exception;
+use crate::module::{Module, Param};
+use crate::ops::indexing::{NewAxis, TryIndexOp};
+use crate::ops::{arange, concatenate_axis, exp, log};
+use crate::{Array, Dtype, array};
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::ModuleParameters;
 

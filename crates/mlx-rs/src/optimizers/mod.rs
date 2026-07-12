@@ -2,19 +2,15 @@
 
 #![deny(missing_docs)]
 
-use std::{
-    borrow::{Borrow, Cow},
-    collections::HashMap,
-    path::Path,
-    rc::Rc,
-};
+use std::borrow::{Borrow, Cow};
+use std::collections::HashMap;
+use std::path::Path;
+use std::rc::Rc;
 
-use crate::{
-    Array, array,
-    error::{IoError, UnflattenError},
-    module::{FlattenedModuleParam, ModuleParameters},
-    utils::Updatable,
-};
+use crate::error::{IoError, UnflattenError};
+use crate::module::{FlattenedModuleParam, ModuleParameters};
+use crate::utils::Updatable;
+use crate::{Array, array};
 
 mod adadelta;
 mod adafactor;

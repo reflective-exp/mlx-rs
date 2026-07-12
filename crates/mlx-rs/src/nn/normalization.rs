@@ -1,11 +1,9 @@
 use std::borrow::Cow;
 
-use crate::{
-    Array, array,
-    error::Exception,
-    module::{Module, Param},
-    ops::{ones, rsqrt, zeros},
-};
+use crate::error::Exception;
+use crate::module::{Module, Param};
+use crate::ops::{ones, rsqrt, zeros};
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, Builder};
 use mlx_macros::ModuleParameters;
 

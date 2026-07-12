@@ -1,16 +1,11 @@
 use std::sync::Arc;
 
-use crate::{
-    Array, Stream, array,
-    error::Exception,
-    module::{Module, Param},
-    ops::{
-        addmm,
-        indexing::{Ellipsis, IndexOp},
-        matmul, sigmoid, split, stack_axis, tanh, tanh_device,
-    },
-    random::uniform,
-};
+use crate::error::Exception;
+use crate::module::{Module, Param};
+use crate::ops::indexing::{Ellipsis, IndexOp};
+use crate::ops::{addmm, matmul, sigmoid, split, stack_axis, tanh, tanh_device};
+use crate::random::uniform;
+use crate::{Array, Stream, array};
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::ModuleParameters;
 

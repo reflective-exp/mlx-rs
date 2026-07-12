@@ -2,14 +2,12 @@ use std::{borrow::Cow, rc::Rc};
 
 use mlx_internal_macros::{Buildable, generate_builder};
 
-use crate::{
-    Array, array,
-    error::AdafactorBuildError,
-    ops::{
-        matmul, maximum, mean, mean_axes, minimum, rsqrt, sqrt, square, zeros_dtype, zeros_like,
-    },
-    utils::{Updatable, try_get_mut_or_insert_with},
+use crate::error::AdafactorBuildError;
+use crate::ops::{
+    matmul, maximum, mean, mean_axes, minimum, rsqrt, sqrt, square, zeros_dtype, zeros_like,
 };
+use crate::utils::{Updatable, try_get_mut_or_insert_with};
+use crate::{Array, array};
 
 use super::*;
 

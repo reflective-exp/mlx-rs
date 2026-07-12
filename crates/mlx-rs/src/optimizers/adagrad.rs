@@ -1,6 +1,8 @@
 use std::{convert::Infallible, rc::Rc};
 
-use crate::{Array, array, ops::square, utils::Updatable};
+use crate::ops::square;
+use crate::utils::Updatable;
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
 
 use crate::utils::get_mut_or_insert_with;

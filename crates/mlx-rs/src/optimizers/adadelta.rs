@@ -1,10 +1,8 @@
 use std::rc::Rc;
 
-use crate::{
-    Array, array,
-    ops::sqrt,
-    utils::{Updatable, get_mut_or_insert_with},
-};
+use crate::ops::sqrt;
+use crate::utils::{Updatable, get_mut_or_insert_with};
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
 
 use crate::error::AdaDeltaBuildError;

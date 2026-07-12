@@ -4,7 +4,8 @@
 
 use std::marker::PhantomData;
 
-use crate::{Array, error::Exception};
+use crate::Array;
+use crate::error::Exception;
 
 use super::{Closure, Compiled, CompiledState, Guarded, VectorArray, type_id_to_usize};
 

@@ -1,14 +1,12 @@
 use std::borrow::Cow;
 
-use crate::{
-    Array, ArrayElement, FromScalar, array,
-    builder::Builder,
-    error::Exception,
-    fast::{ScaledDotProductAttentionMask, scaled_dot_product_attention},
-    module::{Module, UnaryModule},
-    ops::{arange, expand_dims},
-    quantization::MaybeQuantized,
-};
+use crate::builder::Builder;
+use crate::error::Exception;
+use crate::fast::{ScaledDotProductAttentionMask, scaled_dot_product_attention};
+use crate::module::{Module, UnaryModule};
+use crate::ops::{arange, expand_dims};
+use crate::quantization::MaybeQuantized;
+use crate::{Array, ArrayElement, FromScalar, array};
 use dyn_clone::DynClone;
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::{ModuleParameters, Quantizable};

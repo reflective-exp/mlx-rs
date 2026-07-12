@@ -1,6 +1,8 @@
 use smallvec::SmallVec;
 
-use crate::{Array, constants::DEFAULT_STACK_VEC_LEN, utils::resolve_index_unchecked};
+use crate::Array;
+use crate::constants::DEFAULT_STACK_VEC_LEN;
+use crate::utils::resolve_index_unchecked;
 
 #[inline]
 pub(super) fn resolve_size_and_axis_unchecked(

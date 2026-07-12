@@ -1,10 +1,8 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{
-    Array,
-    error::{Exception, Result},
-    utils::{Closure, guard::Guarded},
-};
+use crate::Array;
+use crate::error::{Exception, Result};
+use crate::utils::{Closure, guard::Guarded};
 
 use super::{ClosureValueAndGrad, value_and_gradient};
 

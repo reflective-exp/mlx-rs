@@ -1,10 +1,8 @@
-use crate::{
-    Stream,
-    dtype::Dtype,
-    error::AsSliceError,
-    sealed::Sealed,
-    utils::{SUCCESS, guard::Guarded},
-};
+use crate::Stream;
+use crate::dtype::Dtype;
+use crate::error::AsSliceError;
+use crate::sealed::Sealed;
+use crate::utils::{SUCCESS, guard::Guarded};
 use element::FromSliceElement;
 use mlx_internal_macros::default_device;
 use mlx_sys::mlx_array;

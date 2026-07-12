@@ -47,12 +47,11 @@
 
 use mlx_sys::mlx_closure_value_and_grad;
 
-use crate::{
-    Array,
-    error::{Result, get_and_clear_closure_error},
-    module::ModuleParamRef,
-    utils::{Closure, SUCCESS, VectorArray, guard::Guarded},
-};
+use crate::Array;
+use crate::error::{Result, get_and_clear_closure_error};
+use crate::module::ModuleParamRef;
+use crate::utils::guard::Guarded;
+use crate::utils::{Closure, SUCCESS, VectorArray};
 
 pub mod compile;
 mod grad;

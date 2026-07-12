@@ -100,7 +100,9 @@ use std::{borrow::Cow, ops::Bound, rc::Rc};
 
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{Array, Stream, StreamOrDevice, error::Result, utils::guard::Guarded};
+use crate::error::Result;
+use crate::utils::guard::Guarded;
+use crate::{Array, Stream, StreamOrDevice};
 
 pub(crate) mod index_impl;
 pub(crate) mod indexmut_impl;

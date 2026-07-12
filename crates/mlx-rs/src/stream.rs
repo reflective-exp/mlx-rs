@@ -1,10 +1,9 @@
 use std::{cell::RefCell, ffi::CStr};
 
-use crate::{
-    device::Device,
-    error::Result,
-    utils::{SUCCESS, guard::Guarded},
-};
+use crate::device::Device;
+use crate::error::Result;
+use crate::utils::SUCCESS;
+use crate::utils::guard::Guarded;
 
 thread_local! {
     static TASK_LOCAL_DEFAULT_STREAM: RefCell<Option<Stream>> = const { RefCell::new(None) };

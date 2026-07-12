@@ -1,13 +1,12 @@
 //! Loss functions
 
-use crate::{
-    Array, array,
-    error::{CrossEntropyBuildError, Exception},
-    ops::{
-        abs, clip, exp, indexing::take_along_axis, log, logaddexp, logsumexp_axes, maximum,
-        minimum, multiply, power, sqrt, square, sum_axes, sum_axis, r#where,
-    },
+use crate::error::{CrossEntropyBuildError, Exception};
+use crate::ops::indexing::take_along_axis;
+use crate::ops::{
+    abs, clip, exp, log, logaddexp, logsumexp_axes, maximum, minimum, multiply, power, sqrt,
+    square, sum_axes, sum_axis, r#where,
 };
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
 
 #[inline]

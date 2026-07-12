@@ -1,12 +1,11 @@
 use mlx_internal_macros::{default_device, generate_macro};
 use smallvec::SmallVec;
 
-use crate::{
-    Array, Stream,
-    constants::DEFAULT_STACK_VEC_LEN,
-    error::Result,
-    utils::{IntoOption, VectorArray, guard::Guarded},
-};
+use crate::constants::DEFAULT_STACK_VEC_LEN;
+use crate::error::Result;
+use crate::utils::guard::Guarded;
+use crate::utils::{IntoOption, VectorArray};
+use crate::{Array, Stream};
 
 impl Array {
     /// See [`expand_dims()`].

@@ -1,10 +1,9 @@
-use crate::{Array, StreamOrDevice, utils::ScalarOrArray};
+use crate::utils::ScalarOrArray;
+use crate::{Array, StreamOrDevice};
 use num_traits::Pow;
-use std::{
-    iter::Product,
-    ops::{
-        Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
-    },
+use std::iter::Product;
+use std::ops::{
+    Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
 };
 
 macro_rules! impl_binary_op {

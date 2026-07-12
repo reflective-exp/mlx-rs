@@ -1,13 +1,11 @@
 use std::f32::consts::PI;
 
+use crate::error::{Exception, Result};
 use crate::module::{Module, Param};
 use crate::ops::logsumexp_axis;
-use crate::{
-    Array, array,
-    error::{Exception, Result},
-    ops::{abs, exp, maximum, minimum, multiply, which},
-    transforms::compile::compile,
-};
+use crate::ops::{abs, exp, maximum, minimum, multiply, which};
+use crate::transforms::compile::compile;
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::ModuleParameters;
 

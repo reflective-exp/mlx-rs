@@ -2,17 +2,12 @@ use std::borrow::Cow;
 
 use smallvec::{SmallVec, smallvec};
 
-use crate::{
-    Array, Stream,
-    constants::DEFAULT_STACK_VEC_LEN,
-    error::Result,
-    ops::{
-        broadcast_arrays_device, broadcast_to_device,
-        indexing::{count_non_new_axis_operations, expand_ellipsis_operations},
-        reshape_device,
-    },
-    utils::{VectorArray, resolve_index_signed_unchecked},
-};
+use crate::constants::DEFAULT_STACK_VEC_LEN;
+use crate::error::Result;
+use crate::ops::indexing::{count_non_new_axis_operations, expand_ellipsis_operations};
+use crate::ops::{broadcast_arrays_device, broadcast_to_device, reshape_device};
+use crate::utils::{VectorArray, resolve_index_signed_unchecked};
+use crate::{Array, Stream};
 
 use mlx_internal_macros::default_device;
 

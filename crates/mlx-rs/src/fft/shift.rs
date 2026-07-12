@@ -1,10 +1,12 @@
 use mlx_internal_macros::{default_device, generate_macro};
 use smallvec::SmallVec;
 
-use crate::{
-    Stream, array::Array, constants::DEFAULT_STACK_VEC_LEN, error::Result, utils::IntoOption,
-    utils::guard::Guarded,
-};
+use crate::Stream;
+use crate::array::Array;
+use crate::constants::DEFAULT_STACK_VEC_LEN;
+use crate::error::Result;
+use crate::utils::IntoOption;
+use crate::utils::guard::Guarded;
 
 /// Resolve axes for shift operations - when None, returns all axes
 fn resolve_axes(a: &Array, axes: Option<&[i32]>) -> SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> {

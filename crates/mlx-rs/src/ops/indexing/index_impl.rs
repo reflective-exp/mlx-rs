@@ -1,18 +1,14 @@
-use std::{
-    borrow::Cow,
-    ops::{Bound, Deref, RangeBounds},
-    rc::Rc,
-};
+use std::borrow::Cow;
+use std::ops::{Bound, Deref, RangeBounds};
+use std::rc::Rc;
 
 use smallvec::{SmallVec, smallvec};
 
-use crate::{
-    Array, Stream, array,
-    constants::DEFAULT_STACK_VEC_LEN,
-    error::Result,
-    ops::indexing::expand_ellipsis_operations,
-    utils::{VectorArray, resolve_index_unchecked},
-};
+use crate::constants::DEFAULT_STACK_VEC_LEN;
+use crate::error::Result;
+use crate::ops::indexing::expand_ellipsis_operations;
+use crate::utils::{VectorArray, resolve_index_unchecked};
+use crate::{Array, Stream, array};
 
 use mlx_internal_macros::default_device;
 

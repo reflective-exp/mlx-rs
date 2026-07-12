@@ -1,11 +1,9 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{
-    Stream,
-    array::Array,
-    error::Result,
-    utils::{IntoOption, guard::Guarded},
-};
+use crate::Stream;
+use crate::array::Array;
+use crate::error::Result;
+use crate::utils::{IntoOption, guard::Guarded};
 
 use super::utils::{resolve_size_and_axis_unchecked, resolve_sizes_and_axes_unchecked};
 use super::{FftNorm, resolve_norm};

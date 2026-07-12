@@ -1,10 +1,9 @@
-use std::{
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
-use crate::{Array, nested::NestedValue};
+use crate::Array;
+use crate::nested::NestedValue;
 
 use super::ModuleParameters;
 

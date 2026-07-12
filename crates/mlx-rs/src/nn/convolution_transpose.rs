@@ -1,10 +1,8 @@
+use crate::Array;
+use crate::error::Exception;
 use crate::module::{Module, Param};
-use crate::{
-    Array,
-    error::Exception,
-    ops::{conv_transpose1d, conv_transpose2d, conv_transpose3d, zeros},
-    random::uniform,
-};
+use crate::ops::{conv_transpose1d, conv_transpose2d, conv_transpose3d, zeros};
+use crate::random::uniform;
 use mlx_internal_macros::{Buildable, Builder};
 use mlx_macros::ModuleParameters;
 

@@ -1,10 +1,8 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
-use crate::{
-    Array, ArrayElement, Dtype, Stream,
-    error::Result,
-    utils::{guard::Guarded, optional_bool},
-};
+use crate::error::Result;
+use crate::utils::{guard::Guarded, optional_bool};
+use crate::{Array, ArrayElement, Dtype, Stream};
 
 impl Array {
     /// Convert an array to FP8 (E4M3) format.

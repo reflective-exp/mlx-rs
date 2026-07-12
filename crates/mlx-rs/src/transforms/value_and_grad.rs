@@ -1,8 +1,7 @@
-use crate::{
-    Array,
-    error::{Exception, Result},
-    utils::{Closure, IntoOption, guard::Guarded},
-};
+use crate::Array;
+use crate::error::{Exception, Result};
+use crate::utils::guard::Guarded;
+use crate::utils::{Closure, IntoOption};
 
 use super::{ClosureValueAndGrad, value_and_gradient};
 

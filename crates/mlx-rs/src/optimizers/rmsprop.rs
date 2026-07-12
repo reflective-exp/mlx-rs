@@ -1,12 +1,11 @@
 use std::rc::Rc;
 
-use crate::{
-    Array, array,
-    ops::{sqrt, square},
-};
+use crate::ops::{sqrt, square};
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
 
-use crate::{error::RmsPropBuildError, utils::get_mut_or_insert_with};
+use crate::error::RmsPropBuildError;
+use crate::utils::get_mut_or_insert_with;
 
 use super::*;
 

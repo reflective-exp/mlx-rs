@@ -1,6 +1,8 @@
 //! Implements a nested hashmap
 
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::rc::Rc;
 
 const DELIMITER: char = '.';
 

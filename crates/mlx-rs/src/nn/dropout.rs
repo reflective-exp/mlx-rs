@@ -1,6 +1,9 @@
 use crate::Array;
+use crate::array;
+use crate::error::Exception;
 use crate::module::Module;
-use crate::{array, error::Exception, ops::multiply, random::bernoulli};
+use crate::ops::multiply;
+use crate::random::bernoulli;
 use mlx_internal_macros::{Buildable, Builder};
 use mlx_macros::ModuleParameters;
 

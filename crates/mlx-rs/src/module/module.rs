@@ -1,10 +1,8 @@
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, path::Path, rc::Rc};
 
-use crate::{
-    Array,
-    error::{Exception, IoError},
-    nested::{NestedHashMap, NestedValue},
-};
+use crate::Array;
+use crate::error::{Exception, IoError};
+use crate::nested::{NestedHashMap, NestedValue};
 
 /// Type alias for owned module parameters.
 pub type ModuleParam = NestedHashMap<Rc<str>, Array>;
