@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 use crate::builder::Builder;
 use crate::error::Exception;
@@ -6,7 +8,7 @@ use crate::fast::{ScaledDotProductAttentionMask, scaled_dot_product_attention};
 use crate::module::{Module, UnaryModule};
 use crate::ops::{arange, expand_dims};
 use crate::quantization::MaybeQuantized;
-use crate::{Array, ArrayElement, FromScalar, array};
+use crate::{Array, ArrayElement, Dtype, FromScalar, array};
 use dyn_clone::DynClone;
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::{ModuleParameters, Quantizable};
@@ -132,21 +134,44 @@ pub struct MultiHeadAttention {
     pub output_proj: MaybeQuantized<Linear>,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct CausalMaskKey {
+    n: i32,
+    dtype: Dtype,
+}
+
+thread_local! {
+    static CAUSAL_MASK_CACHE: RefCell<HashMap<CausalMaskKey, Array>> = RefCell::new(HashMap::new());
+}
+
 impl MultiHeadAttention {
     /// Default value for the `bias` field
     pub const DEFAULT_BIAS: bool = false;
 
     /// Creates an attention mask for use with [`MultiHeadAttention`].
+    ///
+    /// The mask depends only on `n` and the element type, so it is cached per
+    /// thread and reused across forward passes instead of rebuilt each call.
     pub fn create_additive_causal_mask<T>(n: i32) -> Result<Array, Exception>
     where
         T: ArrayElement + LowerBounded,
         Array: FromScalar<T>,
     {
+        let key = CausalMaskKey { n, dtype: T::DTYPE };
+        if let Some(mask) = CAUSAL_MASK_CACHE.with(|cache| cache.borrow().get(&key).cloned()) {
+            return Ok(mask);
+        }
+
         let indices = arange::<_, T>(0, n, 1)?;
         let left = expand_dims(&indices, 1)?;
         let right = expand_dims(&indices, 0)?;
         let mask = left.lt(right)?;
         let mask = mask.as_type::<T>(None)?.multiply(array!(T::min_value()))?; // TODO: replace with f32::MIN?
+
+        CAUSAL_MASK_CACHE.with(|cache| {
+            cache.borrow_mut().insert(key, mask.clone());
+        });
+
         Ok(mask)
     }
 }
@@ -1156,6 +1181,24 @@ mod tests {
     use super::*;
     use crate::random::{seed, uniform};
     use float_eq::assert_float_eq;
+
+    #[test]
+    fn test_create_additive_causal_mask_values_and_cache() {
+        let mask = MultiHeadAttention::create_additive_causal_mask::<f32>(3).unwrap();
+        assert_eq!(mask.shape(), &[3, 3]);
+
+        // Upper triangle (strictly future positions) is masked with f32::MIN,
+        // the lower triangle and diagonal are 0.
+        let min = f32::MIN;
+        assert_eq!(
+            mask.as_slice::<f32>(),
+            &[0.0, min, min, 0.0, 0.0, min, 0.0, 0.0, 0.0]
+        );
+
+        // A second call is served from the cache and is identical.
+        let cached = MultiHeadAttention::create_additive_causal_mask::<f32>(3).unwrap();
+        assert_eq!(cached.as_slice::<f32>(), mask.as_slice::<f32>());
+    }
 
     #[test]
     fn test_multi_head_attention() {
