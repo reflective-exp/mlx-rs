@@ -86,13 +86,14 @@ impl StreamOrDevice {
 }
 
 impl Default for StreamOrDevice {
-    /// The default stream on the default device.
+    /// The task local default stream if one is set, otherwise the default stream
+    /// on the default device.
     ///
-    /// This will be [Device::gpu()] unless [Device::set_default()]
-    /// sets it otherwise.
+    /// A task local stream is set by [`with_new_default_stream`]. Without one this
+    /// will be [Device::gpu()] unless [Device::set_default()] sets it otherwise.
     fn default() -> Self {
         Self {
-            stream: Stream::new(),
+            stream: Stream::task_local_or_default(),
         }
     }
 }
@@ -293,6 +294,18 @@ mod tests {
             let task_local_stream_1 = Stream::task_local_or_default();
             assert_eq!(task_local_stream_0, task_local_stream_1);
             assert_ne!(task_local_stream_0, cpu_stream);
+        });
+    }
+
+    #[test]
+    fn test_stream_or_device_default_uses_task_local_stream() {
+        Device::set_default(&Device::cpu());
+        let cpu_default = StreamOrDevice::default();
+
+        let task_default_stream = Stream::gpu();
+        with_new_default_stream(task_default_stream.clone(), || {
+            assert_eq!(StreamOrDevice::default().as_ref(), &task_default_stream);
+            assert_ne!(StreamOrDevice::default(), cpu_default);
         });
     }
 

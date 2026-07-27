@@ -182,22 +182,27 @@ pub fn scaled_dot_product_attention_device<'a>(
 /// # Params
 ///
 /// - x: input array
-/// - weight: A multiplicative weight to scale the result by. The `weight` should be one-dimensional with the same size as the last axis of `x`.
+/// - weight: A multiplicative weight to scale the result by. The `weight` should be one-dimensional
+///   with the same size as the last axis of `x`. If not given no scaling will occur, and the
+///   underlying kernel skips the per-element multiply.
 /// - eps: A small additive constant for numerical stability
 /// - stream: stream or device to evaluate on
 #[generate_macro(customize(root = "$crate::fast"))]
 #[default_device]
-pub fn rms_norm_device(
-    x: impl AsRef<Array>,
-    weight: impl AsRef<Array>,
-    eps: f32,
+pub fn rms_norm_device<'a>(
+    #[named] x: impl AsRef<Array>,
+    #[optional] weight: impl Into<Option<&'a Array>>,
+    #[named] eps: f32,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fast_rms_norm(
             res,
             x.as_ref().as_ptr(),
-            weight.as_ref().as_ptr(),
+            weight
+                .into()
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
             eps,
             stream.as_ref().as_ptr(),
         )
@@ -666,7 +671,7 @@ mod tests {
         assert_eq!(a.dtype(), crate::Dtype::Float32);
 
         let weight = Array::ones::<f32>(&[16]).unwrap();
-        let result = rms_norm(a, weight, 1e-5).unwrap();
+        let result = rms_norm(a, &weight, 1e-5).unwrap();
         assert_eq!(result.shape(), [2, 8, 16]);
         assert_eq!(result.dtype(), crate::Dtype::Float32);
         assert_float_eq!(
@@ -679,6 +684,26 @@ mod tests {
             223.472_32,
             abs <= 4.469_446
         );
+    }
+
+    #[test]
+    fn test_rms_norm_without_weight_matches_unit_weight() {
+        crate::random::seed(103).unwrap();
+        let a = crate::random::uniform::<_, f32>(0.0, 1.0, &[2, 8, 16], None).unwrap();
+        let ones = Array::ones::<f32>(&[16]).unwrap();
+
+        let weighted = rms_norm(&a, &ones, 1e-5).unwrap();
+        let unweighted = rms_norm(&a, None, 1e-5).unwrap();
+
+        assert_eq!(unweighted.shape(), [2, 8, 16]);
+        assert_eq!(unweighted.dtype(), crate::Dtype::Float32);
+        let max_diff = (&unweighted - &weighted)
+            .abs()
+            .unwrap()
+            .max(None)
+            .unwrap()
+            .item::<f32>();
+        assert!(max_diff < 1e-6, "Max difference was {}", max_diff);
     }
 
     #[test]
