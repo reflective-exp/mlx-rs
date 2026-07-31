@@ -676,6 +676,191 @@ pub fn split_device(
     })
 }
 
+/// Reverse the order of elements along the given axes.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `axes`: The axes to reverse.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 3, 4, 5, 6], &[2, 3]);
+/// // [[3, 2, 1], [6, 5, 4]]
+/// let result = flip_axes(&a, &[1][..]).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn flip_axes_device(
+    a: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_flip(
+            res,
+            a.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Similar to [`flip_axes`], but reverses the order of elements along every axis.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 3, 4, 5, 6], &[2, 3]);
+/// // [[6, 5, 4], [3, 2, 1]]
+/// let result = flip(&a).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn flip_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    let a = a.as_ref();
+    let axes: SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> = (0..a.ndim() as i32).collect();
+    flip_axes_device(a, &axes, stream)
+}
+
+/// Roll array elements along the given axes, wrapping elements past the end back to the start.
+///
+/// `shift` is broadcast against `axes`: it must either have the same length as `axes` or be a
+/// single value applied to every axis.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `shift`: The number of positions to shift by.
+/// - `axes`: The axes to roll along.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 3, 4, 5, 6], &[2, 3]);
+/// // [[6, 4, 5], [3, 1, 2]]
+/// let result = roll_axes(&a, &[1, 1][..], &[0, 1][..]).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn roll_axes_device(
+    a: impl AsRef<Array>,
+    shift: &[i32],
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_roll_axes(
+            res,
+            a.as_ref().as_ptr(),
+            shift.as_ptr(),
+            shift.len(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Similar to [`roll_axes`], but rolls along a single axis.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 3, 4, 5, 6], &[2, 3]);
+/// // [[3, 1, 2], [6, 4, 5]]
+/// let result = roll_axis(&a, &[1][..], 1).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn roll_axis_device(
+    a: impl AsRef<Array>,
+    shift: &[i32],
+    axis: i32,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_roll_axis(
+            res,
+            a.as_ref().as_ptr(),
+            shift.as_ptr(),
+            shift.len(),
+            axis,
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Similar to [`roll_axes`], but flattens the array before rolling and restores the original
+/// shape afterwards.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_iter(0..10, &[10]);
+/// // [8, 9, 0, 1, 2, 3, 4, 5, 6, 7]
+/// let result = roll(&a, &[2][..]).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn roll_device(
+    a: impl AsRef<Array>,
+    shift: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_roll(
+            res,
+            a.as_ref().as_ptr(),
+            shift.as_ptr(),
+            shift.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Unstack an array along the given axis, returning one array per index along that axis.
+///
+/// This is the inverse of [`stack_axis`]: each returned array has `axis` removed from its shape.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `axis`: The axis to unstack along.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_iter(0..6, &[2, 3]);
+/// // [[0, 1, 2], [3, 4, 5]]
+/// let parts = unstack(&a, 0).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn unstack_device(
+    a: impl AsRef<Array>,
+    axis: i32,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Vec<Array>> {
+    Vec::<Array>::try_from_op(|res| unsafe {
+        mlx_sys::mlx_unstack(res, a.as_ref().as_ptr(), axis, stream.as_ref().as_ptr())
+    })
+}
+
 /// Number of padding values to add to the edges of each axis.
 #[derive(Debug)]
 pub enum PadWidth<'a> {
@@ -1536,5 +1721,85 @@ mod tests {
         c2.eval().unwrap();
         assert_eq!(c2.shape(), &[3, 2]);
         assert_eq!(c2, t);
+    }
+
+    #[test]
+    fn test_flip() {
+        let a = array!([[1, 2, 3], [4, 5, 6]]);
+
+        // No axes: reverse every axis.
+        assert_eq!(flip(&a).unwrap(), array!([[6, 5, 4], [3, 2, 1]]));
+
+        assert_eq!(
+            flip_axes(&a, &[0][..]).unwrap(),
+            array!([[4, 5, 6], [1, 2, 3]])
+        );
+        assert_eq!(
+            flip_axes(&a, &[1][..]).unwrap(),
+            array!([[3, 2, 1], [6, 5, 4]])
+        );
+        assert_eq!(
+            flip_axes(&a, &[-1][..]).unwrap(),
+            array!([[3, 2, 1], [6, 5, 4]])
+        );
+
+        assert!(flip_axes(&a, &[2][..]).is_err());
+    }
+
+    #[test]
+    fn test_roll() {
+        let a = Array::from_iter(0..10, &[10]);
+
+        // Flat roll over the whole (flattened) array.
+        assert_eq!(
+            roll(&a, &[2][..]).unwrap(),
+            array!([8, 9, 0, 1, 2, 3, 4, 5, 6, 7])
+        );
+        assert_eq!(
+            roll(&a, &[-2][..]).unwrap(),
+            array!([2, 3, 4, 5, 6, 7, 8, 9, 0, 1])
+        );
+
+        let b = array!([[1, 2, 3], [4, 5, 6]]);
+
+        // Roll along a single axis.
+        assert_eq!(
+            roll_axis(&b, &[1][..], 0).unwrap(),
+            array!([[4, 5, 6], [1, 2, 3]])
+        );
+        assert_eq!(
+            roll_axis(&b, &[1][..], 1).unwrap(),
+            array!([[3, 1, 2], [6, 4, 5]])
+        );
+
+        // Roll each axis by its own shift.
+        assert_eq!(
+            roll_axes(&b, &[1, 1][..], &[0, 1][..]).unwrap(),
+            array!([[6, 4, 5], [3, 1, 2]])
+        );
+
+        assert!(roll_axis(&b, &[1][..], 5).is_err());
+    }
+
+    #[test]
+    fn test_unstack() {
+        let a = Array::from_iter(0..6, &[2, 3]);
+
+        let parts = unstack(&a, 0).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], array!([0, 1, 2]));
+        assert_eq!(parts[1], array!([3, 4, 5]));
+
+        let parts = unstack(&a, 1).unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], array!([0, 3]));
+        assert_eq!(parts[1], array!([1, 4]));
+        assert_eq!(parts[2], array!([2, 5]));
+
+        // Negative axis counts from the end.
+        let parts = unstack(&a, -1).unwrap();
+        assert_eq!(parts.len(), 3);
+
+        assert!(unstack(&a, 2).is_err());
     }
 }

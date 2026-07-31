@@ -2,9 +2,9 @@ use crate::array::Array;
 use crate::error::Result;
 use crate::sealed::Sealed;
 
-use crate::Stream;
 use crate::utils::guard::Guarded;
 use crate::utils::{IntoOption, ScalarOrArray, VectorArray};
+use crate::{Dtype, Stream};
 use mlx_internal_macros::{default_device, generate_macro};
 use smallvec::SmallVec;
 
@@ -371,6 +371,46 @@ impl Array {
     pub fn floor_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_floor(res, self.as_ptr(), stream.as_ref().as_ptr())
+        })
+    }
+
+    /// Element-wise truncation towards zero.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[-1.7, -0.5, 0.5, 1.7], &[4]);
+    /// let mut b = a.trunc().unwrap();
+    ///
+    /// let b_data: &[f32] = b.as_slice();
+    /// // b_data == [-1.0, -0.0, 0.0, 1.0]
+    /// ```
+    #[default_device]
+    pub fn trunc_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_trunc(res, self.as_ptr(), stream.as_ref().as_ptr())
+        })
+    }
+
+    /// Element-wise unary plus, which returns the array unchanged.
+    ///
+    /// This is the counterpart of [`Array::negative`] and exists so generic code can apply
+    /// either sign without special-casing.
+    #[default_device]
+    pub fn positive_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_positive(res, self.as_ptr(), stream.as_ref().as_ptr())
+        })
+    }
+
+    /// Element-wise complex conjugate.
+    ///
+    /// Real arrays are returned unchanged.
+    #[default_device]
+    pub fn conjugate_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_conjugate(res, self.as_ptr(), stream.as_ref().as_ptr())
         })
     }
 
@@ -1073,6 +1113,197 @@ pub fn expm1_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>
 #[default_device]
 pub fn floor_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
     a.as_ref().floor_device(stream)
+}
+
+/// See [`Array::conjugate`].
+#[generate_macro]
+#[default_device]
+pub fn conjugate_device(
+    a: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().conjugate_device(stream)
+}
+
+/// See [`Array::positive`].
+#[generate_macro]
+#[default_device]
+pub fn positive_device(
+    a: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().positive_device(stream)
+}
+
+/// See [`Array::trunc`].
+#[generate_macro]
+#[default_device]
+pub fn trunc_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    a.as_ref().trunc_device(stream)
+}
+
+/// The `n`-th discrete difference along the given axis.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `n`: How many times to take the difference. Default is `1`.
+/// - `axis`: The axis to difference along. Default is `-1`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 4, 7, 0], &[5]);
+/// // [1, 2, 3, -7]
+/// let result = diff(&a, None, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn diff_device(
+    a: impl AsRef<Array>,
+    #[optional] n: impl Into<Option<i32>>,
+    #[optional] axis: impl Into<Option<i32>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_diff(
+            res,
+            a.as_ref().as_ptr(),
+            n.into().unwrap_or(1),
+            axis.into().unwrap_or(-1),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Compute a vector dot product along an axis.
+///
+/// Unlike [`inner`], this contracts a single named axis rather than the trailing axes, so the
+/// contracted axis is removed from the output shape.
+///
+/// # Params
+///
+/// - `a`: The first input array.
+/// - `b`: The second input array.
+/// - `axis`: The axis to contract. Default is `-1`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
+/// let b = Array::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
+/// // [17.0, 53.0]
+/// let result = vecdot(&a, &b, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn vecdot_device(
+    a: impl AsRef<Array>,
+    b: impl AsRef<Array>,
+    #[optional] axis: impl Into<Option<i32>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_vecdot(
+            res,
+            a.as_ref().as_ptr(),
+            b.as_ref().as_ptr(),
+            axis.into().unwrap_or(-1),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Sum along a diagonal of the array.
+///
+/// # Params
+///
+/// - `a`: The input array, which must have at least two dimensions.
+/// - `offset`: Offset of the diagonal from the main diagonal. Default is `0`.
+/// - `axis1`: First axis of the 2-D sub-arrays. Default is `0`.
+/// - `axis2`: Second axis of the 2-D sub-arrays. Default is `1`.
+/// - `dtype`: Dtype of the accumulator. Default is the dtype of `a`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9], &[3, 3]);
+/// // 15
+/// let result = trace(&a, None, None, None, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn trace_device(
+    a: impl AsRef<Array>,
+    #[optional] offset: impl Into<Option<i32>>,
+    #[optional] axis1: impl Into<Option<i32>>,
+    #[optional] axis2: impl Into<Option<i32>>,
+    #[optional] dtype: impl Into<Option<Dtype>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let a = a.as_ref();
+    let dtype = dtype.into().unwrap_or_else(|| a.dtype());
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_trace(
+            res,
+            a.as_ptr(),
+            offset.into().unwrap_or(0),
+            axis1.into().unwrap_or(0),
+            axis2.into().unwrap_or(1),
+            dtype.into(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Extract the number of elements along some axes as a scalar array.
+///
+/// This exists to let shape-dependent computations stay traceable under shapeless compilation:
+/// the count becomes an array in the graph rather than a constant baked in at trace time.
+///
+/// # Params
+///
+/// - `a`: The input array.
+/// - `axes`: The axes whose sizes are multiplied together.
+/// - `inverted`: Return the reciprocal of the count. Default is `false`.
+/// - `dtype`: Dtype of the result. Default is [`Dtype::Int32`].
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::zeros::<f32>(&[2, 3, 4]).unwrap();
+/// // 6
+/// let result = number_of_elements(&a, &[0, 1][..], None, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn number_of_elements_device(
+    a: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] inverted: impl Into<Option<bool>>,
+    #[optional] dtype: impl Into<Option<Dtype>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let dtype = dtype.into().unwrap_or(Dtype::Int32);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_number_of_elements(
+            res,
+            a.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            inverted.into().unwrap_or(false),
+            dtype.into(),
+            stream.as_ref().as_ptr(),
+        )
+    })
 }
 
 /// See [`Array::floor_divide`].
@@ -3431,5 +3662,126 @@ mod tests {
 
         let c = a.right_shift(&b);
         assert!(c.is_err());
+    }
+
+    #[test]
+    fn test_trunc() {
+        let a = array!([-1.7f32, -0.5, 0.5, 1.7]);
+        assert_eq!(
+            crate::ops::trunc(&a).unwrap(),
+            array!([-1.0f32, -0.0, 0.0, 1.0])
+        );
+        assert_eq!(a.trunc().unwrap(), array!([-1.0f32, -0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn test_positive() {
+        let a = array!([-1.0f32, 0.0, 2.0]);
+        assert_eq!(crate::ops::positive(&a).unwrap(), a);
+        assert_eq!(a.positive().unwrap(), a);
+    }
+
+    #[test]
+    fn test_conjugate() {
+        let a = Array::from_slice(
+            &[complex64::new(1.0, 2.0), complex64::new(-3.0, -4.0)],
+            &[2],
+        );
+        let c = crate::ops::conjugate(&a).unwrap();
+        assert_eq!(c.dtype(), Dtype::Complex64);
+        assert_eq!(
+            c.as_slice::<complex64>(),
+            &[complex64::new(1.0, -2.0), complex64::new(-3.0, 4.0)]
+        );
+        assert_eq!(a.conjugate().unwrap(), c);
+    }
+
+    #[test]
+    fn test_diff() {
+        let a = array!([1, 2, 4, 7, 0]);
+        assert_eq!(
+            crate::ops::diff(&a, None, None).unwrap(),
+            array!([1, 2, 3, -7])
+        );
+
+        // n = 2 takes the difference twice.
+        assert_eq!(crate::ops::diff(&a, 2, None).unwrap(), array!([1, 1, -10]));
+
+        let b = array!([[1, 3, 6], [4, 8, 13]]);
+        assert_eq!(crate::ops::diff(&b, None, 0).unwrap(), array!([[3, 5, 7]]));
+        assert_eq!(
+            crate::ops::diff(&b, None, 1).unwrap(),
+            array!([[2, 3], [4, 5]])
+        );
+
+        assert!(crate::ops::diff(&b, None, 3).is_err());
+    }
+
+    #[test]
+    fn test_vecdot() {
+        let a = array!([[1.0f32, 2.0], [3.0, 4.0]]);
+        let b = array!([[5.0f32, 6.0], [7.0, 8.0]]);
+
+        // Default is the last axis.
+        assert_eq!(
+            crate::ops::vecdot(&a, &b, None).unwrap(),
+            array!([17.0f32, 53.0])
+        );
+        assert_eq!(
+            crate::ops::vecdot(&a, &b, 0).unwrap(),
+            array!([26.0f32, 44.0])
+        );
+
+        assert!(crate::ops::vecdot(&a, &b, 3).is_err());
+    }
+
+    #[test]
+    fn test_trace() {
+        let a = array!([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
+        assert_eq!(
+            crate::ops::trace(&a, None, None, None, None).unwrap(),
+            array!(15)
+        );
+
+        // Offset picks a different diagonal.
+        assert_eq!(
+            crate::ops::trace(&a, 1, None, None, None).unwrap(),
+            array!(8)
+        );
+        assert_eq!(
+            crate::ops::trace(&a, -1, None, None, None).unwrap(),
+            array!(12)
+        );
+
+        // An explicit dtype widens the accumulator.
+        let t = crate::ops::trace(&a, None, None, None, Dtype::Float32).unwrap();
+        assert_eq!(t.dtype(), Dtype::Float32);
+        assert_eq!(t, array!(15.0f32));
+
+        assert!(crate::ops::trace(&a, None, 0, 4, None).is_err());
+    }
+
+    #[test]
+    fn test_number_of_elements() {
+        let a = Array::zeros::<f32>(&[2, 3, 4]).unwrap();
+
+        // Defaults to Int32, matching MLX.
+        let n = crate::ops::number_of_elements(&a, &[0][..], None, None).unwrap();
+        assert_eq!(n.dtype(), Dtype::Int32);
+        assert_eq!(n, array!(2));
+
+        assert_eq!(
+            crate::ops::number_of_elements(&a, &[0, 1][..], None, None).unwrap(),
+            array!(6)
+        );
+
+        // `inverted` returns the reciprocal.
+        let n = crate::ops::number_of_elements(&a, &[0, 1][..], true, Dtype::Float32).unwrap();
+        assert_eq!(n.dtype(), Dtype::Float32);
+        assert_eq!(n, array!(1.0f32 / 6.0));
+
+        let n = crate::ops::number_of_elements(&a, &[2][..], None, Dtype::Int32).unwrap();
+        assert_eq!(n.dtype(), Dtype::Int32);
+        assert_eq!(n, array!(4));
     }
 }

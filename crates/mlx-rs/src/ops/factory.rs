@@ -1,6 +1,9 @@
+use std::ffi::CString;
+
 use crate::array::Array;
 use crate::array::ArrayElement;
-use crate::error::Result;
+use crate::error::{Exception, Result};
+use crate::utils::VectorArray;
 use crate::utils::guard::Guarded;
 use crate::{Dtype, Stream};
 use mlx_internal_macros::{default_device, generate_macro};
@@ -583,6 +586,108 @@ pub fn triu_device(
     })
 }
 
+/// The Bartlett window of size `m`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::ops::bartlett;
+///
+/// let w = bartlett(5).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn bartlett_device(m: i32, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe { mlx_sys::mlx_bartlett(res, m, stream.as_ref().as_ptr()) })
+}
+
+/// The Blackman window of size `m`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::ops::blackman;
+///
+/// let w = blackman(5).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn blackman_device(m: i32, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe { mlx_sys::mlx_blackman(res, m, stream.as_ref().as_ptr()) })
+}
+
+/// The Hamming window of size `m`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::ops::hamming;
+///
+/// let w = hamming(5).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn hamming_device(m: i32, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe { mlx_sys::mlx_hamming(res, m, stream.as_ref().as_ptr()) })
+}
+
+/// The Hann window of size `m`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::ops::hanning;
+///
+/// let w = hanning(5).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn hanning_device(m: i32, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe { mlx_sys::mlx_hanning(res, m, stream.as_ref().as_ptr()) })
+}
+
+/// Build coordinate arrays from coordinate vectors.
+///
+/// # Params
+///
+/// - `arrays`: The 1-D coordinate vectors.
+/// - `sparse`: Return broadcastable grids instead of fully materialized ones. Default is `false`.
+/// - `indexing`: Either `"xy"` (default) or `"ij"`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::meshgrid};
+///
+/// let inputs = [
+///     Array::from_slice(&[1, 2, 3], &[3]),
+///     Array::from_slice(&[4, 5], &[2]),
+/// ];
+/// let grids = meshgrid(&inputs, None, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn meshgrid_device<'a>(
+    arrays: impl IntoIterator<Item = &'a Array>,
+    #[optional] sparse: impl Into<Option<bool>>,
+    #[optional] indexing: impl Into<Option<&'a str>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Vec<Array>> {
+    let c_arrays = VectorArray::try_from_iter(arrays.into_iter())?;
+    let c_indexing = CString::new(indexing.into().unwrap_or("xy"))
+        .map_err(|_| Exception::from("Invalid indexing"))?;
+
+    Vec::<Array>::try_from_op(|res| unsafe {
+        mlx_sys::mlx_meshgrid(
+            res,
+            c_arrays.as_ptr(),
+            sparse.into().unwrap_or(false),
+            c_indexing.as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,5 +935,83 @@ mod tests {
         assert_eq!(from_scalar_default_dtype.dtype(), Dtype::Float32);
         let data: &[f32] = from_scalar_default_dtype.as_slice();
         assert_eq!(data, &[2.0f32, 2.0f32]);
+    }
+
+    #[test]
+    fn test_bartlett() {
+        let w = bartlett(5).unwrap();
+        assert_eq!(w.dtype(), Dtype::Float32);
+        assert_eq!(w.shape(), &[5]);
+        let expected = Array::from_slice(&[0.0f32, 0.5, 1.0, 0.5, 0.0], &[5]);
+        assert!(
+            w.all_close(&expected, 1e-5, 1e-5, None)
+                .unwrap()
+                .item::<bool>()
+        );
+    }
+
+    #[test]
+    fn test_blackman() {
+        let w = blackman(5).unwrap();
+        assert_eq!(w.dtype(), Dtype::Float32);
+        assert_eq!(w.shape(), &[5]);
+        // Symmetric about the centre, near zero at both ends, peaking at 1.
+        let data: &[f32] = w.as_slice();
+        assert!(data[0].abs() < 1e-5);
+        assert!((data[0] - data[4]).abs() < 1e-5);
+        assert!((data[1] - data[3]).abs() < 1e-5);
+        assert!((data[2] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_hamming() {
+        let w = hamming(5).unwrap();
+        assert_eq!(w.dtype(), Dtype::Float32);
+        assert_eq!(w.shape(), &[5]);
+        let expected = Array::from_slice(&[0.08f32, 0.54, 1.0, 0.54, 0.08], &[5]);
+        assert!(
+            w.all_close(&expected, 1e-5, 1e-5, None)
+                .unwrap()
+                .item::<bool>()
+        );
+    }
+
+    #[test]
+    fn test_hanning() {
+        let w = hanning(5).unwrap();
+        assert_eq!(w.dtype(), Dtype::Float32);
+        assert_eq!(w.shape(), &[5]);
+        let expected = Array::from_slice(&[0.0f32, 0.5, 1.0, 0.5, 0.0], &[5]);
+        assert!(
+            w.all_close(&expected, 1e-5, 1e-5, None)
+                .unwrap()
+                .item::<bool>()
+        );
+    }
+
+    #[test]
+    fn test_meshgrid() {
+        let inputs = [
+            Array::from_slice(&[1, 2, 3], &[3]),
+            Array::from_slice(&[4, 5], &[2]),
+        ];
+
+        // Default "xy" indexing: shape is (len(y), len(x)).
+        let grids = meshgrid(&inputs, None, None).unwrap();
+        assert_eq!(grids.len(), 2);
+        assert_eq!(grids[0], array!([[1, 2, 3], [1, 2, 3]]));
+        assert_eq!(grids[1], array!([[4, 4, 4], [5, 5, 5]]));
+
+        // "ij" indexing transposes the result.
+        let grids = meshgrid(&inputs, None, "ij").unwrap();
+        assert_eq!(grids[0], array!([[1, 1], [2, 2], [3, 3]]));
+        assert_eq!(grids[1], array!([[4, 5], [4, 5], [4, 5]]));
+
+        // sparse leaves each grid broadcastable rather than materialized.
+        let grids = meshgrid(&inputs, true, None).unwrap();
+        assert_eq!(grids[0].shape(), &[1, 3]);
+        assert_eq!(grids[1].shape(), &[2, 1]);
+
+        assert!(meshgrid(&inputs, None, "zz").is_err());
     }
 }

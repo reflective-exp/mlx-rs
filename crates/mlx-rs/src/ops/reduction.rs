@@ -897,6 +897,65 @@ pub fn min_device(
     array.as_ref().min_device(keep_dims, stream)
 }
 
+/// Count the number of non-zero elements along the given axis.
+///
+/// # Params
+///
+/// - `array`: The input array.
+/// - `axis`: The axis to count along.
+/// - `keep_dims`: Keep the reduced axis as a size-one dimension. Default is `false`.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[0, 1, 0, 2, 3, 0], &[2, 3]);
+/// // [1, 2, 0]
+/// let result = count_nonzero_axis(&a, 0, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn count_nonzero_axis_device(
+    array: impl AsRef<Array>,
+    axis: i32,
+    #[optional] keep_dims: impl Into<Option<bool>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_count_nonzero(
+            res,
+            array.as_ref().as_ptr(),
+            axis,
+            keep_dims.into().unwrap_or(false),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Similar to [`count_nonzero_axis`], but counts over the whole array.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::*};
+///
+/// let a = Array::from_slice(&[0, 1, 0, 2, 3, 0], &[2, 3]);
+/// // 3
+/// let result = count_nonzero(&a, None).unwrap();
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn count_nonzero_device(
+    array: impl AsRef<Array>,
+    #[optional] keep_dims: impl Into<Option<bool>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let stream = stream.as_ref();
+    let flat = array.as_ref().reshape_device(&[-1], stream)?;
+    count_nonzero_axis_device(&flat, 0, keep_dims, stream)
+}
+
 /// See [`Array::var_axes`]
 #[generate_macro]
 #[default_device]
@@ -1251,5 +1310,31 @@ mod tests {
 
         let out = x.median_axis(1, None).unwrap();
         assert_eq!(out.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_count_nonzero() {
+        let x = Array::from_slice(&[0, 1, 0, 2, 3, 0], &[2, 3]);
+
+        // No axis counts over the whole array.
+        assert_eq!(count_nonzero(&x, None).unwrap(), Array::from_int(3));
+
+        assert_eq!(
+            count_nonzero_axis(&x, 0, None).unwrap(),
+            Array::from_slice(&[1, 2, 0], &[3])
+        );
+        assert_eq!(
+            count_nonzero_axis(&x, 1, None).unwrap(),
+            Array::from_slice(&[1, 2], &[2])
+        );
+
+        // keep_dims retains the reduced axis with length one.
+        assert_eq!(count_nonzero_axis(&x, 1, true).unwrap().shape(), &[2, 1]);
+
+        // Booleans count as one each.
+        let b = Array::from_slice(&[true, false, true], &[3]);
+        assert_eq!(count_nonzero(&b, None).unwrap(), Array::from_int(2));
+
+        assert!(count_nonzero_axis(&x, 3, None).is_err());
     }
 }

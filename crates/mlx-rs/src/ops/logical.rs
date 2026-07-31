@@ -265,6 +265,170 @@ impl Array {
         })
     }
 
+    /// Element-wise logical exclusive or returning an error if the arrays are not broadcastable.
+    ///
+    /// Logical xor on two arrays with [broadcasting](https://swiftpackageindex.com/ml-explore/mlx-swift/main/documentation/mlx/broadcasting).
+    /// Non-boolean inputs are compared on truthiness, and the result is always
+    /// [`crate::Dtype::Bool`].
+    ///
+    /// # Params
+    ///
+    /// - other: array to compare
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[true, false, true], &[3]);
+    /// let b = Array::from_slice(&[true, true, false], &[3]);
+    /// let mut c = a.logical_xor(&b).unwrap();
+    ///
+    /// let c_data: &[bool] = c.as_slice();
+    /// // c_data == [false, true, true]
+    /// ```
+    #[default_device]
+    pub fn logical_xor_device(
+        &self,
+        other: impl AsRef<Array>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_logical_xor(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise and returning an error if the arrays are not broadcastable.
+    ///
+    /// Operands must be integer or boolean arrays.
+    ///
+    /// # Params
+    ///
+    /// - other: array to combine
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[12, 10, 5], &[3]);
+    /// let b = Array::from_slice(&[10, 3, 5], &[3]);
+    /// let mut c = a.bitwise_and(&b).unwrap();
+    ///
+    /// let c_data: &[i32] = c.as_slice();
+    /// // c_data == [8, 2, 5]
+    /// ```
+    #[default_device]
+    pub fn bitwise_and_device(
+        &self,
+        other: impl AsRef<Array>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_and(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise or returning an error if the arrays are not broadcastable.
+    ///
+    /// Operands must be integer or boolean arrays.
+    ///
+    /// # Params
+    ///
+    /// - other: array to combine
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[12, 10, 5], &[3]);
+    /// let b = Array::from_slice(&[10, 3, 5], &[3]);
+    /// let mut c = a.bitwise_or(&b).unwrap();
+    ///
+    /// let c_data: &[i32] = c.as_slice();
+    /// // c_data == [14, 11, 5]
+    /// ```
+    #[default_device]
+    pub fn bitwise_or_device(
+        &self,
+        other: impl AsRef<Array>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_or(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise exclusive or returning an error if the arrays are not broadcastable.
+    ///
+    /// Operands must be integer or boolean arrays.
+    ///
+    /// # Params
+    ///
+    /// - other: array to combine
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[12, 10, 5], &[3]);
+    /// let b = Array::from_slice(&[10, 3, 5], &[3]);
+    /// let mut c = a.bitwise_xor(&b).unwrap();
+    ///
+    /// let c_data: &[i32] = c.as_slice();
+    /// // c_data == [6, 9, 0]
+    /// ```
+    #[default_device]
+    pub fn bitwise_xor_device(
+        &self,
+        other: impl AsRef<Array>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_xor(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Unary element-wise bitwise inverse.
+    ///
+    /// The operand must be an integer or boolean array. Boolean arrays are inverted
+    /// logically, integers are inverted bit-by-bit.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let a = Array::from_slice(&[0, 1, -2], &[3]);
+    /// let mut b = a.bitwise_invert().unwrap();
+    ///
+    /// let b_data: &[i32] = b.as_slice();
+    /// // b_data == [-1, -2, 1]
+    /// ```
+    #[default_device]
+    pub fn bitwise_invert_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_invert(res, self.as_ptr(), stream.as_ref().as_ptr())
+        })
+    }
+
     /// Unary element-wise logical not.
     ///
     /// # Example
@@ -547,6 +711,60 @@ pub fn logical_not_device(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     a.as_ref().logical_not_device(stream)
+}
+
+/// See [`Array::logical_xor`]
+#[generate_macro]
+#[default_device]
+pub fn logical_xor_device(
+    a: impl AsRef<Array>,
+    b: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().logical_xor_device(b, stream)
+}
+
+/// See [`Array::bitwise_and`]
+#[generate_macro]
+#[default_device]
+pub fn bitwise_and_device(
+    a: impl AsRef<Array>,
+    b: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().bitwise_and_device(b, stream)
+}
+
+/// See [`Array::bitwise_invert`]
+#[generate_macro]
+#[default_device]
+pub fn bitwise_invert_device(
+    a: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().bitwise_invert_device(stream)
+}
+
+/// See [`Array::bitwise_or`]
+#[generate_macro]
+#[default_device]
+pub fn bitwise_or_device(
+    a: impl AsRef<Array>,
+    b: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().bitwise_or_device(b, stream)
+}
+
+/// See [`Array::bitwise_xor`]
+#[generate_macro]
+#[default_device]
+pub fn bitwise_xor_device(
+    a: impl AsRef<Array>,
+    b: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref().bitwise_xor_device(b, stream)
 }
 
 /// See [`Array::all_close`]
@@ -1123,5 +1341,75 @@ mod tests {
         let c = logical_or(&a, &b).unwrap();
         assert_eq!(c.dtype(), Dtype::Bool);
         assert!(c.item::<bool>());
+    }
+
+    #[test]
+    fn test_logical_xor() {
+        let a = array!([true, true, false, false]);
+        let b = array!([true, false, true, false]);
+        let c = logical_xor(&a, &b).unwrap();
+        assert_eq!(c.dtype(), Dtype::Bool);
+        assert_eq!(c, array!([false, true, true, false]));
+
+        // Non-bool inputs are treated as truthiness.
+        let a = array!([0, 1, 0, 2]);
+        let b = array!([0, 0, 3, 4]);
+        assert_eq!(
+            logical_xor(&a, &b).unwrap(),
+            array!([false, true, true, false])
+        );
+
+        assert!(logical_xor(array!([1, 2, 3]), array!([1, 2])).is_err());
+    }
+
+    #[test]
+    fn test_bitwise_and() {
+        let a = array!([12, 10, 5]);
+        let b = array!([10, 3, 5]);
+        assert_eq!(bitwise_and(&a, &b).unwrap(), array!([8, 2, 5]));
+        assert_eq!(a.bitwise_and(&b).unwrap(), array!([8, 2, 5]));
+
+        let a = array!([true, true, false]);
+        let b = array!([true, false, false]);
+        let c = bitwise_and(&a, &b).unwrap();
+        assert_eq!(c.dtype(), Dtype::Bool);
+        assert_eq!(c, array!([true, false, false]));
+
+        // Floating point is not a valid bitwise operand.
+        assert!(bitwise_and(array!([1.0, 2.0]), array!([1.0, 2.0])).is_err());
+    }
+
+    #[test]
+    fn test_bitwise_or() {
+        let a = array!([12, 10, 5]);
+        let b = array!([10, 3, 5]);
+        assert_eq!(bitwise_or(&a, &b).unwrap(), array!([14, 11, 5]));
+        assert_eq!(a.bitwise_or(&b).unwrap(), array!([14, 11, 5]));
+
+        assert!(bitwise_or(array!([1, 2, 3]), array!([1, 2])).is_err());
+    }
+
+    #[test]
+    fn test_bitwise_xor() {
+        let a = array!([12, 10, 5]);
+        let b = array!([10, 3, 5]);
+        assert_eq!(bitwise_xor(&a, &b).unwrap(), array!([6, 9, 0]));
+        assert_eq!(a.bitwise_xor(&b).unwrap(), array!([6, 9, 0]));
+
+        assert!(bitwise_xor(array!([1, 2, 3]), array!([1, 2])).is_err());
+    }
+
+    #[test]
+    fn test_bitwise_invert() {
+        let a = array!([0, 1, -2]);
+        assert_eq!(bitwise_invert(&a).unwrap(), array!([-1, -2, 1]));
+        assert_eq!(a.bitwise_invert().unwrap(), array!([-1, -2, 1]));
+
+        let a = array!([true, false]);
+        let c = bitwise_invert(&a).unwrap();
+        assert_eq!(c.dtype(), Dtype::Bool);
+        assert_eq!(c, array!([false, true]));
+
+        assert!(bitwise_invert(array!([1.0, 2.0])).is_err());
     }
 }

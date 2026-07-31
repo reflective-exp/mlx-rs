@@ -232,6 +232,65 @@ impl Array {
             }
         }
     }
+    /// Return the cumulative log-sum-exp of the elements along the given axis returning an error
+    /// if the inputs are invalid.
+    ///
+    /// This is the numerically stable form of `log(cumsum(exp(a)))`.
+    ///
+    /// # Params
+    ///
+    /// - axis: Optional axis to accumulate over. If unspecified the flattened array is used.
+    /// - reverse: If true, accumulate in reverse - defaults to false if unspecified.
+    /// - inclusive: If true, the i-th element of the output includes the i-th element of the
+    ///   input - defaults to true if unspecified.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use mlx_rs::Array;
+    /// let array = Array::from_slice(&[0.0, 0.0, 0.0, 0.0], &[4]);
+    ///
+    /// // [0, ln 2, ln 3, ln 4]
+    /// let result = array.logcumsumexp(0, None, None).unwrap();
+    /// ```
+    #[default_device]
+    pub fn logcumsumexp_device(
+        &self,
+        axis: impl Into<Option<i32>>,
+        reverse: impl Into<Option<bool>>,
+        inclusive: impl Into<Option<bool>>,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array> {
+        let stream = stream.as_ref();
+        let reverse = reverse.into().unwrap_or(false);
+        let inclusive = inclusive.into().unwrap_or(true);
+
+        match axis.into() {
+            Some(axis) => Array::try_from_op(|res| unsafe {
+                mlx_sys::mlx_logcumsumexp(
+                    res,
+                    self.as_ptr(),
+                    axis,
+                    reverse,
+                    inclusive,
+                    stream.as_ptr(),
+                )
+            }),
+            None => {
+                let flat = self.reshape_device(&[-1], stream)?;
+                Array::try_from_op(|res| unsafe {
+                    mlx_sys::mlx_logcumsumexp(
+                        res,
+                        flat.as_ptr(),
+                        0,
+                        reverse,
+                        inclusive,
+                        stream.as_ptr(),
+                    )
+                })
+            }
+        }
+    }
 }
 
 /// See [`Array::cummax`]
@@ -288,6 +347,20 @@ pub fn cumsum_device(
 ) -> Result<Array> {
     a.as_ref()
         .cumsum_device(axis, reverse, inclusive, dtype, stream)
+}
+
+/// See [`Array::logcumsumexp`]
+#[generate_macro]
+#[default_device]
+pub fn logcumsumexp_device(
+    a: impl AsRef<Array>,
+    #[optional] axis: impl Into<Option<i32>>,
+    #[optional] reverse: impl Into<Option<bool>>,
+    #[optional] inclusive: impl Into<Option<bool>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    a.as_ref()
+        .logcumsumexp_device(axis, reverse, inclusive, stream)
 }
 
 #[cfg(test)]
@@ -430,5 +503,44 @@ mod tests {
         let array = Array::from_slice(&[5, 8, 4, 9], &[2, 2]);
         let result = array.cumsum(2, None, None, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_logcumsumexp() {
+        // logcumsumexp of equal values grows by ln(k) over the running count.
+        let array = Array::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4]);
+        let result = array.logcumsumexp(0, None, None).unwrap();
+        let expected = Array::from_slice(&[0.0f32, 2.0f32.ln(), 3.0f32.ln(), 4.0f32.ln()], &[4]);
+        assert!(
+            result
+                .all_close(&expected, 1e-5, 1e-5, None)
+                .unwrap()
+                .item::<bool>()
+        );
+
+        // No axis flattens first.
+        let array = Array::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[2, 2]);
+        let result = array.logcumsumexp(None, None, None).unwrap();
+        assert_eq!(result.shape(), &[4]);
+
+        // exclusive: the first entry is -inf (log of an empty sum).
+        let array = Array::from_slice(&[0.0f32, 0.0], &[2]);
+        let result = array.logcumsumexp(0, None, false).unwrap();
+        let data: &[f32] = result.as_slice();
+        assert!(data[0].is_infinite() && data[0].is_sign_negative());
+        assert!((data[1] - 0.0).abs() < 1e-5);
+
+        // reverse accumulates from the end.
+        let array = Array::from_slice(&[0.0f32, 0.0, 0.0], &[3]);
+        let result = array.logcumsumexp(0, true, None).unwrap();
+        let expected = Array::from_slice(&[3.0f32.ln(), 2.0f32.ln(), 0.0], &[3]);
+        assert!(
+            result
+                .all_close(&expected, 1e-5, 1e-5, None)
+                .unwrap()
+                .item::<bool>()
+        );
+
+        assert!(array.logcumsumexp(2, None, None).is_err());
     }
 }
