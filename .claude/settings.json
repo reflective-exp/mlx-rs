@@ -11,7 +11,7 @@
           },
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -qE 'git +(checkout|commit|stage)' && { echo 'BLOCKED: do not run destructive git operations. Let the human do that.' >&2; exit 2; } || exit 0",
+            "command": "jq -r '.tool_input.command' | grep -qE 'git +(checkout|commit|stash)' && { echo 'BLOCKED: do not run destructive git operations. Let the human do that.' >&2; exit 2; } || exit 0",
             "statusMessage": "Checking destructive git ops"
           }
         ]
