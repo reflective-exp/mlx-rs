@@ -6,10 +6,11 @@ use crate::error::Result;
 use crate::utils::SUCCESS;
 use crate::utils::guard::Guarded;
 
-/// Bumped every time the default device changes (via [`Device::set_default`]),
-/// which is the only thing that changes what the default stream resolves to.
-/// Reading it is a cheap atomic load that gates every thread's cached default
-/// stream, so a changed default device invalidates the cache on all threads.
+/// Bumped every time something changes what the default stream resolves to:
+/// the default device ([`Device::set_default`]) or the device's default stream
+/// ([`Stream::set_default`]). Reading it is a cheap atomic load that gates every
+/// thread's cached default stream, so either change invalidates the cache on all
+/// threads.
 pub(crate) static DEFAULT_STREAM_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {

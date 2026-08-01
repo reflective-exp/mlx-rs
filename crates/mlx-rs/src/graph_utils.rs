@@ -114,6 +114,14 @@ where
     }
 }
 
+/// Run `render` with `namer`, or with a fresh namer that names every node when it is `None`.
+fn with_namer<R>(namer: Option<&NodeNamer>, render: impl FnOnce(&NodeNamer) -> R) -> R {
+    match namer {
+        Some(namer) => render(namer),
+        None => render(&NodeNamer::new()),
+    }
+}
+
 /// Render the graph producing `outputs` as Graphviz DOT.
 ///
 /// # Params
@@ -137,17 +145,10 @@ pub fn export_to_dot<'a>(
     namer: Option<&NodeNamer>,
 ) -> Result<String> {
     let outputs = VectorArray::try_from_iter(outputs.into_iter())?;
-    let owned_namer;
-    let namer = match namer {
-        Some(namer) => namer,
-        None => {
-            owned_namer = NodeNamer::new();
-            &owned_namer
-        }
-    };
-
-    capture_output(|file| unsafe {
-        mlx_sys::mlx_export_to_dot(file, namer.c_namer, outputs.as_ptr())
+    with_namer(namer, |namer| {
+        capture_output(|file| unsafe {
+            mlx_sys::mlx_export_to_dot(file, namer.c_namer, outputs.as_ptr())
+        })
     })
 }
 
@@ -175,17 +176,10 @@ pub fn print_graph<'a>(
     namer: Option<&NodeNamer>,
 ) -> Result<String> {
     let outputs = VectorArray::try_from_iter(outputs.into_iter())?;
-    let owned_namer;
-    let namer = match namer {
-        Some(namer) => namer,
-        None => {
-            owned_namer = NodeNamer::new();
-            &owned_namer
-        }
-    };
-
-    capture_output(|file| unsafe {
-        mlx_sys::mlx_print_graph(file, namer.c_namer, outputs.as_ptr())
+    with_namer(namer, |namer| {
+        capture_output(|file| unsafe {
+            mlx_sys::mlx_print_graph(file, namer.c_namer, outputs.as_ptr())
+        })
     })
 }
 

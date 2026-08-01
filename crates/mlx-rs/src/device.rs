@@ -139,6 +139,11 @@ pub struct DeviceInfo {
     c_info: mlx_sys::mlx_device_info,
 }
 
+/// Borrow `key` as a C string, rejecting the interior nul that MLX cannot represent.
+fn c_key(key: &str) -> Result<CString> {
+    CString::new(key).map_err(|_| crate::error::Exception::from("Invalid key"))
+}
+
 impl DeviceInfo {
     /// Every key reported for the device.
     pub fn keys(&self) -> Result<Vec<String>> {
@@ -170,7 +175,7 @@ impl DeviceInfo {
 
     /// Whether the device reports the given key.
     pub fn has_key(&self, key: &str) -> Result<bool> {
-        let key = CString::new(key).map_err(|_| crate::error::Exception::from("Invalid key"))?;
+        let key = c_key(key)?;
         bool::try_from_op(|res| unsafe {
             mlx_sys::mlx_device_info_has_key(res, self.c_info, key.as_ptr())
         })
@@ -181,7 +186,7 @@ impl DeviceInfo {
     /// Returns an error if the key is not present.
     pub fn is_string(&self, key: &str) -> Result<bool> {
         ensure_error_handler();
-        let key = CString::new(key).map_err(|_| crate::error::Exception::from("Invalid key"))?;
+        let key = c_key(key)?;
         unsafe {
             let mut is_string = false;
             let status = mlx_sys::mlx_device_info_is_string(
@@ -201,7 +206,7 @@ impl DeviceInfo {
     /// Returns an error if the key is missing or holds a size.
     pub fn get_string(&self, key: &str) -> Result<String> {
         ensure_error_handler();
-        let key = CString::new(key).map_err(|_| crate::error::Exception::from("Invalid key"))?;
+        let key = c_key(key)?;
         unsafe {
             let mut ptr: *const std::os::raw::c_char = std::ptr::null();
             let status =
@@ -220,7 +225,7 @@ impl DeviceInfo {
     /// Returns an error if the key is missing or holds a string.
     pub fn get_size(&self, key: &str) -> Result<usize> {
         ensure_error_handler();
-        let key = CString::new(key).map_err(|_| crate::error::Exception::from("Invalid key"))?;
+        let key = c_key(key)?;
         unsafe {
             let mut value = 0usize;
             let status =

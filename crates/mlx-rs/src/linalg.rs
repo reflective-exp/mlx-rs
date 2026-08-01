@@ -329,7 +329,7 @@ pub fn det_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) 
 /// Compute the sign and natural logarithm of the absolute value of the determinant of a square
 /// matrix.
 ///
-/// Returns `(sign, logabsdet)`. This is more numerically stable than [`det`] when the determinant
+/// Returns `(sign, logabsdet)`. This is more numerically stable than [`det()`] when the determinant
 /// would over- or underflow.
 ///
 /// # Params

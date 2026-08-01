@@ -38,7 +38,7 @@ pub fn fftfreq_device(
 
 /// Return the Discrete Fourier Transform sample frequencies for [`crate::fft::rfft`].
 ///
-/// Unlike [`fftfreq`], the returned array only contains the `n / 2 + 1` non-negative frequencies,
+/// Unlike [`fftfreq()`], the returned array only contains the `n / 2 + 1` non-negative frequencies,
 /// matching the output length of a real-input FFT.
 ///
 /// # Params

@@ -60,8 +60,15 @@ mod tests {
 
     #[test]
     fn test_metallib_path_roundtrip() {
+        // The path is process-global, so restore it rather than leaving a bogus one behind for
+        // any test sharing this process.
+        let previous = metallib_path().unwrap();
+
         set_metallib_path("/tmp/some-metallib-path").unwrap();
         assert_eq!(metallib_path().unwrap(), "/tmp/some-metallib-path");
+
+        set_metallib_path(&previous).unwrap();
+        assert_eq!(metallib_path().unwrap(), previous);
     }
 
     #[test]

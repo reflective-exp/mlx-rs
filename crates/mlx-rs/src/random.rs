@@ -480,7 +480,7 @@ pub fn permutation_arange_device<'a>(
 
 /// Generate normally distributed random numbers with broadcastable `loc` and `scale`.
 ///
-/// Unlike [`normal`], which takes scalar parameters, `loc` and `scale` are arrays that are
+/// Unlike [`normal()`], which takes scalar parameters, `loc` and `scale` are arrays that are
 /// broadcast against `shape`. This makes it possible to draw each element from a differently
 /// parameterized normal distribution in a single call.
 ///

@@ -101,6 +101,7 @@ use std::{borrow::Cow, ops::Bound, rc::Rc};
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::error::Result;
+use crate::ops::{maximum_device, minimum_device};
 use crate::utils::guard::Guarded;
 use crate::utils::{IntoOption, VectorArray};
 use crate::{Array, Stream, StreamOrDevice};
@@ -901,7 +902,7 @@ pub fn scatter_device<'a>(
 
 /// Add updates into the array at positions given by one index array per axis.
 ///
-/// Unlike [`scatter`], updates that land on the same position accumulate. See [`scatter`] for the
+/// Unlike [`scatter()`], updates that land on the same position accumulate. See [`scatter()`] for
 /// shape requirements on `indices` and `updates`.
 ///
 /// # Params
@@ -935,7 +936,7 @@ pub fn scatter_add_device<'a>(
 
 /// Take the maximum of the array and the updates at positions given by one index array per axis.
 ///
-/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+/// See [`scatter()`] for the shape requirements on `indices` and `updates`.
 ///
 /// # Params
 ///
@@ -968,7 +969,7 @@ pub fn scatter_max_device<'a>(
 
 /// Take the minimum of the array and the updates at positions given by one index array per axis.
 ///
-/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+/// See [`scatter()`] for the shape requirements on `indices` and `updates`.
 ///
 /// # Params
 ///
@@ -1001,7 +1002,7 @@ pub fn scatter_min_device<'a>(
 
 /// Multiply the array by the updates at positions given by one index array per axis.
 ///
-/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+/// See [`scatter()`] for the shape requirements on `indices` and `updates`.
 ///
 /// # Params
 ///
@@ -1034,7 +1035,7 @@ pub fn scatter_prod_device<'a>(
 
 /// Add values into the array at the indices given along `axis`.
 ///
-/// This is the accumulating counterpart of [`put_along_axis`]: `indices` and `values` have the
+/// This is the accumulating counterpart of [`put_along_axis()`]: `indices` and `values` have the
 /// same shape, which matches `a` except along `axis`, and repeated indices accumulate instead of
 /// overwriting each other.
 ///
@@ -1112,8 +1113,9 @@ pub fn gather_single_device(
 /// Slice `a` starting at indices that are only known at evaluation time.
 ///
 /// `start` holds one starting index per entry in `axes`; axes not listed start at 0. Starting
-/// indices are clamped so the slice stays in bounds. `slice_size` is the full output shape and so
-/// has one entry per dimension of `a`, not per entry in `axes`.
+/// indices are clamped to `[0, dim - slice_size[axis]]`, so an out-of-range index yields the
+/// nearest in-bounds slice rather than reading past the array. `slice_size` is the full output
+/// shape and so has one entry per dimension of `a`, not per entry in `axes`.
 ///
 /// Use the [`crate::ops::indexing::IndexOp`] traits when the bounds are known up front — this
 /// exists for the case where `start` is itself the result of a computation.
@@ -1146,16 +1148,32 @@ pub fn slice_dynamic_device(
     slice_size: &[i32],
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let a = a.as_ref();
+    let stream = stream.as_ref();
+    let shape = a.shape();
+
+    let extents: Option<Vec<i32>> = (slice_size.len() == shape.len())
+        .then(|| {
+            axes.iter()
+                .map(|&axis| normalize_axis(axis, shape.len()).map(|axis| slice_size[axis]))
+                .collect()
+        })
+        .flatten();
+    let start = match &extents {
+        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents, stream)?,
+        None => Cow::Borrowed(start.as_ref()),
+    };
+
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_dynamic(
             res,
-            a.as_ref().as_ptr(),
+            a.as_ptr(),
             start.as_ref().as_ptr(),
             axes.as_ptr(),
             axes.len(),
             slice_size.as_ptr(),
             slice_size.len(),
-            stream.as_ref().as_ptr(),
+            stream.as_ptr(),
         )
     })
 }
@@ -1166,6 +1184,89 @@ fn resolve_strides<'a>(start: &[i32], strides: impl IntoOption<&'a [i32]>) -> Co
         Some(strides) => Cow::Borrowed(strides),
         None => Cow::Owned(vec![1; start.len()]),
     }
+}
+
+/// Resolve a possibly negative axis against `ndim`, rejecting out-of-range values.
+fn normalize_axis(axis: i32, ndim: usize) -> Option<usize> {
+    let ndim = ndim as i32;
+    let axis = if axis < 0 { axis + ndim } else { axis };
+    (0..ndim).contains(&axis).then_some(axis as usize)
+}
+
+/// Clamp dynamic starting indices to `[0, dim - extent]` along each entry in `axes`.
+///
+/// MLX computes the offset for a dynamic slice as `sum(start[i] * stride[axes[i]])` with no bounds
+/// check at any layer, so an out-of-range `start` reads or writes outside the array's buffer and
+/// segfaults. Clamping keeps these safe wrappers safe; MLX leaves the out-of-range case undefined,
+/// so there is no existing behavior to preserve.
+///
+/// `extents` gives the size covered along each entry in `axes`. Malformed inputs are passed through
+/// untouched so that MLX still reports its own error.
+fn clamp_dynamic_start<'a>(
+    start: &'a Array,
+    shape: &[i32],
+    axes: &[i32],
+    extents: &[i32],
+    stream: &Stream,
+) -> Result<Cow<'a, Array>> {
+    if axes.len() != extents.len() || start.size() != axes.len() || start.ndim() > 1 {
+        return Ok(Cow::Borrowed(start));
+    }
+
+    let mut bounds = Vec::with_capacity(axes.len());
+    for (&axis, &extent) in axes.iter().zip(extents) {
+        match normalize_axis(axis, shape.len()) {
+            Some(axis) => bounds.push((shape[axis] - extent).max(0)),
+            None => return Ok(Cow::Borrowed(start)),
+        }
+    }
+
+    let bounds = Array::from_slice(&bounds, &[bounds.len() as i32]);
+    let clamped = minimum_device(start, &bounds, stream)?;
+    let clamped = maximum_device(&clamped, Array::from_int(0), stream)?;
+
+    // Keep the dtype MLX sees identical to the caller's; the min/max above promote mixed signs.
+    Ok(Cow::Owned(clamped.as_dtype_device(
+        start.dtype(),
+        None,
+        stream,
+    )?))
+}
+
+/// The per-axis extent that [`slice_update_dynamic`] actually writes.
+///
+/// Mirrors the update broadcasting in MLX's dynamic `slice_update` (`mlx/ops.cpp`): an update with
+/// fewer dimensions than `src` is extended with `src`'s leading dimensions, every dimension is
+/// capped at `src`'s, and a scattered axis falling in the prepended region writes one element.
+///
+/// Returns `None` for shapes MLX itself rejects, so the error stays MLX's to report.
+fn dynamic_update_extents(
+    src_shape: &[i32],
+    update_shape: &[i32],
+    axes: &[i32],
+) -> Option<Vec<i32>> {
+    if update_shape.len() > src_shape.len() {
+        return None;
+    }
+    let leading = src_shape.len() - update_shape.len();
+
+    let mut extents = src_shape[..leading].to_vec();
+    extents.extend_from_slice(update_shape);
+    for (extent, &dim) in extents[leading..].iter_mut().zip(&src_shape[leading..]) {
+        *extent = (*extent).min(dim);
+    }
+
+    let axes: Vec<usize> = axes
+        .iter()
+        .map(|&axis| normalize_axis(axis, src_shape.len()))
+        .collect::<Option<_>>()?;
+    for &axis in &axes {
+        if axis < leading {
+            extents[axis] = 1;
+        }
+    }
+
+    Some(axes.into_iter().map(|axis| extents[axis]).collect())
 }
 
 /// Return a copy of `src` with the slice `start..stop` replaced by `update`.
@@ -1220,7 +1321,7 @@ pub fn slice_update_device<'a>(
 
 /// Return a copy of `src` with `update` added into the slice `start..stop`.
 ///
-/// See [`slice_update`] for the parameters.
+/// See [`slice_update()`] for the parameters.
 #[generate_macro(customize(root = "$crate::ops::indexing"))]
 #[default_device]
 pub fn slice_update_add_device<'a>(
@@ -1251,7 +1352,7 @@ pub fn slice_update_add_device<'a>(
 /// Return a copy of `src` with the slice `start..stop` set to the elementwise maximum of itself
 /// and `update`.
 ///
-/// See [`slice_update`] for the parameters.
+/// See [`slice_update()`] for the parameters.
 #[generate_macro(customize(root = "$crate::ops::indexing"))]
 #[default_device]
 pub fn slice_update_max_device<'a>(
@@ -1282,7 +1383,7 @@ pub fn slice_update_max_device<'a>(
 /// Return a copy of `src` with the slice `start..stop` set to the elementwise minimum of itself
 /// and `update`.
 ///
-/// See [`slice_update`] for the parameters.
+/// See [`slice_update()`] for the parameters.
 #[generate_macro(customize(root = "$crate::ops::indexing"))]
 #[default_device]
 pub fn slice_update_min_device<'a>(
@@ -1312,7 +1413,7 @@ pub fn slice_update_min_device<'a>(
 
 /// Return a copy of `src` with the slice `start..stop` multiplied by `update`.
 ///
-/// See [`slice_update`] for the parameters.
+/// See [`slice_update()`] for the parameters.
 #[generate_macro(customize(root = "$crate::ops::indexing"))]
 #[default_device]
 pub fn slice_update_prod_device<'a>(
@@ -1344,7 +1445,8 @@ pub fn slice_update_prod_device<'a>(
 /// evaluation time.
 ///
 /// `start` holds one starting index per entry in `axes`; the extent written along each axis comes
-/// from the shape of `update`. This is the counterpart of [`slice_dynamic`].
+/// from the shape of `update`. Starting indices are clamped so the write stays in bounds, as in
+/// [`slice_dynamic()`]. This is the counterpart of [`slice_dynamic()`].
 ///
 /// # Params
 ///
@@ -1374,15 +1476,26 @@ pub fn slice_update_dynamic_device(
     axes: &[i32],
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let src = src.as_ref();
+    let update = update.as_ref();
+    let stream = stream.as_ref();
+    let shape = src.shape();
+
+    let extents = dynamic_update_extents(shape, update.shape(), axes);
+    let start = match &extents {
+        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents, stream)?,
+        None => Cow::Borrowed(start.as_ref()),
+    };
+
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update_dynamic(
             res,
-            src.as_ref().as_ptr(),
-            update.as_ref().as_ptr(),
+            src.as_ptr(),
+            update.as_ptr(),
             start.as_ref().as_ptr(),
             axes.as_ptr(),
             axes.len(),
-            stream.as_ref().as_ptr(),
+            stream.as_ptr(),
         )
     })
 }
@@ -1594,7 +1707,7 @@ mod tests {
         // With no index arrays and no axes the update replaces the whole array
         let input = array!(1i32);
         let updates = array!(2i32);
-        let out = scatter_max(&input, [], &updates, &[]).unwrap();
+        let out = scatter(&input, [], &updates, &[]).unwrap();
         assert_eq!(out.item::<i32>(), 2);
     }
 
@@ -1622,6 +1735,36 @@ mod tests {
     }
 
     #[test]
+    fn test_slice_dynamic_clamps_start() {
+        let a = reshape(Array::from_iter(0i32..12, &[12]), &[3, 4]).unwrap();
+
+        // A 2-row slice starting at row 2 would run past the end, so the start clamps to 1
+        let start = Array::from_slice(&[2i32], &[1]);
+        let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
+        assert_eq!(out.as_slice::<i32>(), &[4, 5, 6, 7, 8, 9, 10, 11]);
+
+        // Negative starts clamp to 0 rather than reading before the array
+        let start = Array::from_slice(&[-1i32], &[1]);
+        let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
+        assert_eq!(out.as_slice::<i32>(), &[0, 1, 2, 3, 4, 5, 6, 7]);
+
+        // Clamping is per axis, and leaves in-range axes alone
+        let start = Array::from_slice(&[9i32, 1], &[2]);
+        let out = slice_dynamic(&a, &start, &[0, 1], &[2, 2]).unwrap();
+        assert_eq!(out.as_slice::<i32>(), &[5, 6, 9, 10]);
+    }
+
+    #[test]
+    fn test_slice_dynamic_clamps_unsigned_start() {
+        let a = reshape(Array::from_iter(0i32..12, &[12]), &[3, 4]).unwrap();
+
+        // Clamping must not change the values MLX sees for an unsigned index array
+        let start = Array::from_slice(&[7u32], &[1]);
+        let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
+        assert_eq!(out.as_slice::<i32>(), &[4, 5, 6, 7, 8, 9, 10, 11]);
+    }
+
+    #[test]
     fn test_slice_update() {
         let src = Array::zeros::<f32>(&[4]).unwrap();
         let update = Array::ones::<f32>(&[2]).unwrap();
@@ -1641,6 +1784,34 @@ mod tests {
             out.as_slice::<f32>(),
             &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
         );
+    }
+
+    #[test]
+    fn test_slice_update_dynamic_clamps_start() {
+        let src = Array::zeros::<f32>(&[3, 2]).unwrap();
+        let update = Array::ones::<f32>(&[2, 2]).unwrap();
+
+        // A 2-row update at row 2 would run past the end, so the start clamps to 1
+        let start = Array::from_slice(&[2i32], &[1]);
+        let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[0.0, 0.0, 1.0, 1.0, 1.0, 1.0]);
+
+        // Negative starts clamp to 0 rather than writing before the array
+        let start = Array::from_slice(&[-5i32], &[1]);
+        let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 1.0, 1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_slice_update_dynamic_clamps_broadcast_update() {
+        // An update with fewer dimensions than `src` is broadcast across the leading axes, so
+        // the clamp bound comes from the broadcast extent, not `update.shape()` directly.
+        let src = Array::zeros::<f32>(&[3, 2]).unwrap();
+        let update = Array::ones::<f32>(&[2]).unwrap();
+
+        let start = Array::from_slice(&[9i32], &[1]);
+        let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]
