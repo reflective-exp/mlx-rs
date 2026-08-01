@@ -17,11 +17,11 @@ bindgen = "0.72.1"
 bytemuck = "1"
 cc = "1"
 cmake = "0.1"
-darling = "0.21"
+darling = "0.24"
 dyn-clone = "1"
 float_eq = "1"
 half = "2"
-itertools = "0.14"
+itertools = "0.15"
 libc = "0.2"
 mach-sys = "0.5"
 num-complex = "0.4"
@@ -34,7 +34,7 @@ proc-macro2 = "1"
 quote = "1"
 safetensors = "0.8"
 smallvec = "1"
-strum = { version = "0.27", features = ["derive"] }
-syn = { version = "2", features = ["full"] }
+strum = { version = "0.28", features = ["derive"] }
+syn = { version = "3", features = ["full"] }
 tempfile = "3"
 thiserror = "2"
