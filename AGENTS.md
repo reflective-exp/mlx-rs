@@ -19,6 +19,8 @@ bindings for MLX.
   https://docs.rs. YOU DO NOT NEED TO BUILD DOCS.
 - Prefer nested submodules with `mod.rs` files at depth of 1. Submodules deeper than 1 may
   be siblings to `mod.rs`.
+- The tests are fast. Running tests on a single crate is slower than running the whole
+  test suite, since it's more likely to hit existing build cache.
 
 ## Commands
 

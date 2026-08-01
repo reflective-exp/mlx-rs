@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qE 'cargo +(nextest +run|test)\\b[^|;&]*(-p|--package)[ =]' && { echo 'BLOCKED: do not run tests per-crate. Run the whole suite: cargo nextest run. Per-crate runs miss the shared build cache and are SLOWER, not faster. See AGENTS.md.' >&2; exit 2; } || exit 0",
+            "statusMessage": "Checking cargo test scope"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qE 'git +(checkout|commit|stage)' && { echo 'BLOCKED: do not run destructive git operations. Let the human do that.' >&2; exit 2; } || exit 0",
+            "statusMessage": "Checking destructive git ops"
+          }
+        ]
+      }
+    ]
+  }
+}
