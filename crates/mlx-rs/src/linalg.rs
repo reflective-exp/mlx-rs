@@ -300,6 +300,63 @@ pub fn qr_device(
     })
 }
 
+/// Compute the determinant of a square matrix.
+///
+/// This function supports arrays with at least 2 dimensions. When the input has more than two
+/// dimensions, the determinant is computed for each matrix in the last two dimensions of `a`.
+///
+/// # Params
+///
+/// - `a`: input array
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, StreamOrDevice, linalg::*};
+///
+/// let a = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+/// let d = det_device(&a, StreamOrDevice::cpu()).unwrap();
+/// assert!((d.item::<f32>() - (-2.0)).abs() < 1e-5);
+/// ```
+#[generate_macro(customize(root = "$crate::linalg"))]
+#[default_device]
+pub fn det_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_linalg_det(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
+    })
+}
+
+/// Compute the sign and natural logarithm of the absolute value of the determinant of a square
+/// matrix.
+///
+/// Returns `(sign, logabsdet)`. This is more numerically stable than [`det`] when the determinant
+/// would over- or underflow.
+///
+/// # Params
+///
+/// - `a`: input array
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, StreamOrDevice, linalg::*};
+///
+/// let a = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+/// let (sign, logabsdet) = slogdet_device(&a, StreamOrDevice::cpu()).unwrap();
+/// assert!((sign.item::<f32>() - (-1.0)).abs() < 1e-5);
+/// assert!((logabsdet.item::<f32>() - 2.0f32.ln()).abs() < 1e-5);
+/// ```
+#[generate_macro(customize(root = "$crate::linalg"))]
+#[default_device]
+pub fn slogdet_device(
+    a: impl AsRef<Array>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<(Array, Array)> {
+    <(Array, Array)>::try_from_op(|(res_0, res_1)| unsafe {
+        mlx_sys::mlx_linalg_slogdet(res_0, res_1, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
+    })
+}
+
 /// The Singular Value Decomposition (SVD) of the input matrix. Returns an error if the input is not
 /// valid.
 ///
@@ -842,6 +899,30 @@ mod tests {
                 .unwrap()
                 .item::<bool>()
         );
+    }
+
+    #[test]
+    fn test_det() {
+        let a = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+        let d = det_device(&a, StreamOrDevice::cpu()).unwrap();
+        assert_eq!(d.shape(), &[] as &[i32]);
+        assert!((d.item::<f32>() - (-2.0)).abs() < 1e-5);
+
+        // 1D input is not a stack of square matrices
+        let a = Array::from_slice(&[1.0f32, 2.0], &[2]);
+        assert!(det_device(&a, StreamOrDevice::cpu()).is_err());
+    }
+
+    #[test]
+    fn test_slogdet() {
+        let a = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+        let (sign, logabsdet) = slogdet_device(&a, StreamOrDevice::cpu()).unwrap();
+
+        assert!((sign.item::<f32>() - (-1.0)).abs() < 1e-5);
+        assert!((logabsdet.item::<f32>() - 2.0f32.ln()).abs() < 1e-5);
+
+        let a = Array::from_slice(&[1.0f32, 2.0], &[2]);
+        assert!(slogdet_device(&a, StreamOrDevice::cpu()).is_err());
     }
 
     // The tests below are adapted from the c++ tests

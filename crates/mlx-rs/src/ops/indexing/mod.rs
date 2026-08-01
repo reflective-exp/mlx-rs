@@ -102,6 +102,7 @@ use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::error::Result;
 use crate::utils::guard::Guarded;
+use crate::utils::{IntoOption, VectorArray};
 use crate::{Array, Stream, StreamOrDevice};
 
 pub(crate) mod index_impl;
@@ -846,6 +847,238 @@ pub fn scatter_prod_single_device(
     })
 }
 
+/// Scatter updates into the array at positions given by one index array per axis.
+///
+/// `indices` supplies one index array per entry in `axes`, and the index arrays are broadcast
+/// against each other. `updates` must have the shape of the broadcast indices followed by
+/// `axes.len()` singleton axes and then the trailing axes of `a` that are not scattered into.
+///
+/// When two updates land on the same position, which one wins is unspecified — use
+/// [`scatter_add`], [`scatter_max`], [`scatter_min`] or [`scatter_prod`] when collisions matter.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: One index array per entry in `axes`
+/// - `updates`: Values to scatter
+/// - `axes`: The axes to scatter along
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, array, ops::{indexing::scatter, reshape}};
+///
+/// // Indexing both axes writes the diagonal
+/// let a = Array::zeros::<f32>(&[2, 2]).unwrap();
+/// let indices = Array::from_slice(&[0u32, 1], &[2]);
+/// let updates = reshape(array!([1.0f32, 2.0]), &[2, 1, 1]).unwrap();
+///
+/// let out = scatter(&a, [&indices, &indices], &updates, &[0, 1]).unwrap();
+/// assert_eq!(out.as_slice::<f32>(), &[1.0, 0.0, 0.0, 2.0]);
+/// ```
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_device<'a>(
+    a: impl AsRef<Array>,
+    indices: impl IntoIterator<Item = &'a Array>,
+    updates: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let indices = VectorArray::try_from_iter(indices.into_iter())?;
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ptr(),
+            updates.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Add updates into the array at positions given by one index array per axis.
+///
+/// Unlike [`scatter`], updates that land on the same position accumulate. See [`scatter`] for the
+/// shape requirements on `indices` and `updates`.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: One index array per entry in `axes`
+/// - `updates`: Values to add
+/// - `axes`: The axes to scatter along
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_add_device<'a>(
+    a: impl AsRef<Array>,
+    indices: impl IntoIterator<Item = &'a Array>,
+    updates: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let indices = VectorArray::try_from_iter(indices.into_iter())?;
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter_add(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ptr(),
+            updates.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Take the maximum of the array and the updates at positions given by one index array per axis.
+///
+/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: One index array per entry in `axes`
+/// - `updates`: Values to compare
+/// - `axes`: The axes to scatter along
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_max_device<'a>(
+    a: impl AsRef<Array>,
+    indices: impl IntoIterator<Item = &'a Array>,
+    updates: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let indices = VectorArray::try_from_iter(indices.into_iter())?;
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter_max(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ptr(),
+            updates.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Take the minimum of the array and the updates at positions given by one index array per axis.
+///
+/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: One index array per entry in `axes`
+/// - `updates`: Values to compare
+/// - `axes`: The axes to scatter along
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_min_device<'a>(
+    a: impl AsRef<Array>,
+    indices: impl IntoIterator<Item = &'a Array>,
+    updates: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let indices = VectorArray::try_from_iter(indices.into_iter())?;
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter_min(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ptr(),
+            updates.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Multiply the array by the updates at positions given by one index array per axis.
+///
+/// See [`scatter`] for the shape requirements on `indices` and `updates`.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: One index array per entry in `axes`
+/// - `updates`: Values to multiply by
+/// - `axes`: The axes to scatter along
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_prod_device<'a>(
+    a: impl AsRef<Array>,
+    indices: impl IntoIterator<Item = &'a Array>,
+    updates: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let indices = VectorArray::try_from_iter(indices.into_iter())?;
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter_prod(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ptr(),
+            updates.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Add values into the array at the indices given along `axis`.
+///
+/// This is the accumulating counterpart of [`put_along_axis`]: `indices` and `values` have the
+/// same shape, which matches `a` except along `axis`, and repeated indices accumulate instead of
+/// overwriting each other.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `indices`: Indices along `axis` to add into
+/// - `values`: Values to add
+/// - `axis`: The axis to index along
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::indexing::scatter_add_axis};
+///
+/// let a = Array::ones::<f32>(&[1, 3]).unwrap();
+/// let indices = Array::from_slice(&[0u32, 0], &[1, 2]);
+/// let values = Array::from_slice(&[1.0f32, 2.0], &[1, 2]);
+///
+/// // Both values land on column 0
+/// let out = scatter_add_axis(&a, &indices, &values, 1).unwrap();
+/// assert_eq!(out.as_slice::<f32>(), &[4.0, 1.0, 1.0]);
+/// ```
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn scatter_add_axis_device(
+    a: impl AsRef<Array>,
+    indices: impl AsRef<Array>,
+    values: impl AsRef<Array>,
+    axis: i32,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_scatter_add_axis(
+            res,
+            a.as_ref().as_ptr(),
+            indices.as_ref().as_ptr(),
+            values.as_ref().as_ptr(),
+            axis,
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 /// Gather elements from the array at the given indices along a single axis.
 ///
 /// # Params
@@ -871,6 +1104,284 @@ pub fn gather_single_device(
             axis,
             slice_sizes.as_ptr(),
             slice_sizes.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Slice `a` starting at indices that are only known at evaluation time.
+///
+/// `start` holds one starting index per entry in `axes`; axes not listed start at 0. Starting
+/// indices are clamped so the slice stays in bounds. `slice_size` is the full output shape and so
+/// has one entry per dimension of `a`, not per entry in `axes`.
+///
+/// Use the [`crate::ops::indexing::IndexOp`] traits when the bounds are known up front — this
+/// exists for the case where `start` is itself the result of a computation.
+///
+/// # Params
+///
+/// - `a`: Input array
+/// - `start`: Starting index per entry in `axes`
+/// - `axes`: The axes `start` refers to
+/// - `slice_size`: The output shape, one entry per dimension of `a`
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::{indexing::slice_dynamic, reshape}};
+///
+/// let a = reshape(Array::from_iter(0i32..12, &[12]), &[3, 4]).unwrap();
+/// let start = Array::from_slice(&[1i32], &[1]);
+///
+/// // Two rows starting at row 1, all four columns
+/// let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
+/// assert_eq!(out.as_slice::<i32>(), &[4, 5, 6, 7, 8, 9, 10, 11]);
+/// ```
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_dynamic_device(
+    a: impl AsRef<Array>,
+    start: impl AsRef<Array>,
+    axes: &[i32],
+    slice_size: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_dynamic(
+            res,
+            a.as_ref().as_ptr(),
+            start.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
+            slice_size.as_ptr(),
+            slice_size.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Default `strides` to 1 along every sliced axis, matching MLX's stride-1 overloads.
+fn resolve_strides<'a>(start: &[i32], strides: impl IntoOption<&'a [i32]>) -> Cow<'a, [i32]> {
+    match strides.into_option() {
+        Some(strides) => Cow::Borrowed(strides),
+        None => Cow::Owned(vec![1; start.len()]),
+    }
+}
+
+/// Return a copy of `src` with the slice `start..stop` replaced by `update`.
+///
+/// `src` is not modified. `update` is broadcast to the shape of the slice.
+///
+/// # Params
+///
+/// - `src`: Input array
+/// - `update`: Values to write into the slice
+/// - `start`: Start index per axis
+/// - `stop`: Stop index (exclusive) per axis
+/// - `strides`: Stride per axis, defaulting to 1
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::indexing::slice_update};
+///
+/// let src = Array::zeros::<f32>(&[4]).unwrap();
+/// let update = Array::ones::<f32>(&[2]).unwrap();
+///
+/// let out = slice_update(&src, &update, &[1], &[3], None).unwrap();
+/// assert_eq!(out.as_slice::<f32>(), &[0.0, 1.0, 1.0, 0.0]);
+/// ```
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_device<'a>(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: &[i32],
+    stop: &[i32],
+    #[optional] strides: impl IntoOption<&'a [i32]>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let strides = resolve_strides(start, strides);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Return a copy of `src` with `update` added into the slice `start..stop`.
+///
+/// See [`slice_update`] for the parameters.
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_add_device<'a>(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: &[i32],
+    stop: &[i32],
+    #[optional] strides: impl IntoOption<&'a [i32]>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let strides = resolve_strides(start, strides);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update_add(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Return a copy of `src` with the slice `start..stop` set to the elementwise maximum of itself
+/// and `update`.
+///
+/// See [`slice_update`] for the parameters.
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_max_device<'a>(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: &[i32],
+    stop: &[i32],
+    #[optional] strides: impl IntoOption<&'a [i32]>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let strides = resolve_strides(start, strides);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update_max(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Return a copy of `src` with the slice `start..stop` set to the elementwise minimum of itself
+/// and `update`.
+///
+/// See [`slice_update`] for the parameters.
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_min_device<'a>(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: &[i32],
+    stop: &[i32],
+    #[optional] strides: impl IntoOption<&'a [i32]>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let strides = resolve_strides(start, strides);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update_min(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Return a copy of `src` with the slice `start..stop` multiplied by `update`.
+///
+/// See [`slice_update`] for the parameters.
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_prod_device<'a>(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: &[i32],
+    stop: &[i32],
+    #[optional] strides: impl IntoOption<&'a [i32]>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let strides = resolve_strides(start, strides);
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update_prod(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ptr(),
+            start.len(),
+            stop.as_ptr(),
+            stop.len(),
+            strides.as_ptr(),
+            strides.len(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Return a copy of `src` with `update` written at a starting position that is only known at
+/// evaluation time.
+///
+/// `start` holds one starting index per entry in `axes`; the extent written along each axis comes
+/// from the shape of `update`. This is the counterpart of [`slice_dynamic`].
+///
+/// # Params
+///
+/// - `src`: Input array
+/// - `update`: Values to write
+/// - `start`: Starting index per entry in `axes`
+/// - `axes`: The axes to update
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::indexing::slice_update_dynamic};
+///
+/// let src = Array::zeros::<f32>(&[3, 2]).unwrap();
+/// let update = Array::ones::<f32>(&[1, 2]).unwrap();
+/// let start = Array::from_slice(&[1i32], &[1]);
+///
+/// let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
+/// assert_eq!(out.as_slice::<f32>(), &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
+/// ```
+#[generate_macro(customize(root = "$crate::ops::indexing"))]
+#[default_device]
+pub fn slice_update_dynamic_device(
+    src: impl AsRef<Array>,
+    update: impl AsRef<Array>,
+    start: impl AsRef<Array>,
+    axes: &[i32],
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_slice_update_dynamic(
+            res,
+            src.as_ref().as_ptr(),
+            update.as_ref().as_ptr(),
+            start.as_ref().as_ptr(),
+            axes.as_ptr(),
+            axes.len(),
             stream.as_ref().as_ptr(),
         )
     })
@@ -1026,6 +1537,155 @@ mod tests {
                 .unwrap()
                 .item::<bool>()
         );
+    }
+
+    // Tests adapted from C++ `ops_tests.cpp/test scatter`, multiple index array cases
+
+    #[test]
+    fn test_scatter() {
+        // Indexing both axes writes the diagonal
+        let input = Array::zeros::<f32>(&[2, 2]).unwrap();
+        let indices = Array::from_slice(&[0u32, 1], &[2]);
+        let updates = reshape(array!([1.0f32, 2.0]), &[2, 1, 1]).unwrap();
+        let out = scatter(&input, [&indices, &indices], &updates, &[0, 1]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 0.0, 0.0, 2.0]);
+    }
+
+    #[test]
+    fn test_scatter_add() {
+        let input = Array::ones::<f32>(&[2, 2]).unwrap();
+        let indices = Array::from_slice(&[0u32, 0], &[2]);
+        let updates = reshape(array!([1.0f32, 2.0]), &[2, 1, 1]).unwrap();
+        let out = scatter_add(&input, [&indices, &indices], &updates, &[0, 1]).unwrap();
+
+        // Both updates collide on [0, 0]
+        assert_eq!(out.as_slice::<f32>(), &[4.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_scatter_max() {
+        let input = Array::ones::<f32>(&[2, 2]).unwrap();
+        let indices = Array::from_slice(&[0u32, 1], &[2]);
+        let updates = reshape(array!([6.0f32, -2.0]), &[2, 1, 1]).unwrap();
+        let out = scatter_max(&input, [&indices, &indices], &updates, &[0, 1]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[6.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_scatter_min() {
+        let input = Array::ones::<f32>(&[2, 2]).unwrap();
+        let indices = Array::from_slice(&[0u32, 1], &[2]);
+        let updates = reshape(array!([-6.0f32, 2.0]), &[2, 1, 1]).unwrap();
+        let out = scatter_min(&input, [&indices, &indices], &updates, &[0, 1]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[-6.0, 1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_scatter_prod() {
+        let input = Array::full::<f32>(&[2, 2], array!(3.0f32)).unwrap();
+        let indices = Array::from_slice(&[0u32, 1], &[2]);
+        let updates = reshape(array!([2.0f32, 4.0]), &[2, 1, 1]).unwrap();
+        let out = scatter_prod(&input, [&indices, &indices], &updates, &[0, 1]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[6.0, 3.0, 3.0, 12.0]);
+    }
+
+    #[test]
+    fn test_scatter_no_axes() {
+        // With no index arrays and no axes the update replaces the whole array
+        let input = array!(1i32);
+        let updates = array!(2i32);
+        let out = scatter_max(&input, [], &updates, &[]).unwrap();
+        assert_eq!(out.item::<i32>(), 2);
+    }
+
+    #[test]
+    fn test_scatter_add_axis() {
+        // Unlike `put_along_axis`, colliding indices accumulate
+        let input = Array::ones::<f32>(&[2, 3]).unwrap();
+        let indices = Array::from_slice(&[0u32, 0, 2, 1], &[2, 2]);
+        let values = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+        let out = scatter_add_axis(&input, &indices, &values, 1).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[4.0, 1.0, 1.0, 1.0, 5.0, 4.0]);
+    }
+
+    #[test]
+    fn test_slice_dynamic() {
+        let a = reshape(Array::from_iter(0i32..12, &[12]), &[3, 4]).unwrap();
+        let start = Array::from_slice(&[1i32], &[1]);
+
+        let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
+        assert_eq!(out.shape(), &[2, 4]);
+        assert_eq!(out.as_slice::<i32>(), &[4, 5, 6, 7, 8, 9, 10, 11]);
+
+        // `slice_size` is the full output shape, so it must cover every dimension
+        assert!(slice_dynamic(&a, &start, &[0], &[2]).is_err());
+    }
+
+    #[test]
+    fn test_slice_update() {
+        let src = Array::zeros::<f32>(&[4]).unwrap();
+        let update = Array::ones::<f32>(&[2]).unwrap();
+
+        let out = slice_update(&src, &update, &[1], &[3], None).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[0.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_slice_update_dynamic() {
+        let src = Array::zeros::<f32>(&[3, 4]).unwrap();
+        let update = Array::ones::<f32>(&[1, 4]).unwrap();
+        let start = Array::from_slice(&[1i32], &[1]);
+
+        let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
+        assert_eq!(
+            out.as_slice::<f32>(),
+            &[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn test_slice_update_add() {
+        let src = Array::ones::<f32>(&[4]).unwrap();
+        let update = Array::from_slice(&[2.0f32, 3.0], &[2]);
+
+        let out = slice_update_add(&src, &update, &[1], &[3], None).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 3.0, 4.0, 1.0]);
+    }
+
+    #[test]
+    fn test_slice_update_max() {
+        let src = Array::ones::<f32>(&[4]).unwrap();
+        let update = Array::from_slice(&[0.0f32, 5.0], &[2]);
+
+        let out = slice_update_max(&src, &update, &[1], &[3], None).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 1.0, 5.0, 1.0]);
+    }
+
+    #[test]
+    fn test_slice_update_min() {
+        let src = Array::ones::<f32>(&[4]).unwrap();
+        let update = Array::from_slice(&[0.0f32, 5.0], &[2]);
+
+        let out = slice_update_min(&src, &update, &[1], &[3], None).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_slice_update_prod() {
+        let src = Array::full::<f32>(&[4], array!(2.0f32)).unwrap();
+        let update = Array::from_slice(&[3.0f32, 4.0], &[2]);
+
+        let out = slice_update_prod(&src, &update, &[1], &[3], None).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[2.0, 6.0, 8.0, 2.0]);
+    }
+
+    #[test]
+    fn test_slice_update_strided() {
+        let src = Array::zeros::<f32>(&[4]).unwrap();
+        let update = Array::ones::<f32>(&[2]).unwrap();
+
+        let out = slice_update(&src, &update, &[0], &[4], &[2][..]).unwrap();
+        assert_eq!(out.as_slice::<f32>(), &[1.0, 0.0, 1.0, 0.0]);
     }
 
     #[test]

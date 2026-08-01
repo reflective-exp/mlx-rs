@@ -169,6 +169,68 @@ pub fn kron_device(
     })
 }
 
+/// Copy an array.
+///
+/// This is a graph-level copy: it produces a new array that evaluates to the same values on the
+/// given stream, without forcing `a` to be evaluated. Use [`Array::deep_clone`] when you want the
+/// data materialized on the host instead.
+///
+/// # Params
+///
+/// - `a`: input array
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::copy};
+///
+/// let a = Array::from_slice(&[1.0f32, 2.0, 3.0], &[3]);
+/// let b = copy(&a).unwrap();
+/// assert_eq!(b.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn copy_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_copy(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
+    })
+}
+
+/// Return copies of `inputs` that will not be evaluated until `dependencies` have been.
+///
+/// The returned arrays hold the same values as `inputs`, but carry an artificial graph edge to
+/// `dependencies`. Use this to force an ordering between otherwise independent branches of a
+/// computation — for example, to make sure a side-effecting op runs before the work that follows.
+///
+/// # Params
+///
+/// - `inputs`: the arrays to return copies of
+/// - `dependencies`: the arrays that must be evaluated first
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, ops::depends};
+///
+/// let a = Array::from_slice(&[1.0f32, 2.0], &[2]);
+/// let b = Array::from_slice(&[3.0f32, 4.0], &[2]);
+/// let first = a.multiply(&b).unwrap();
+///
+/// let out = depends([&a, &b], [&first]).unwrap();
+/// assert_eq!(out[0].as_slice::<f32>(), &[1.0, 2.0]);
+/// ```
+pub fn depends<'a, 'b>(
+    inputs: impl IntoIterator<Item = &'a Array>,
+    dependencies: impl IntoIterator<Item = &'b Array>,
+) -> Result<Vec<Array>> {
+    let inputs = VectorArray::try_from_iter(inputs.into_iter())?;
+    let dependencies = VectorArray::try_from_iter(dependencies.into_iter())?;
+
+    Vec::<Array>::try_from_op(|res| unsafe {
+        mlx_sys::mlx_depends(res, inputs.as_ptr(), dependencies.as_ptr())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -177,7 +239,29 @@ mod tests {
     };
     use pretty_assertions::assert_eq;
 
-    use super::diagonal;
+    use super::{copy, depends, diagonal};
+
+    #[test]
+    fn test_copy() {
+        let a = Array::from_slice(&[1.0f32, 2.0, 3.0], &[3]);
+        let b = copy(&a).unwrap();
+
+        assert_eq!(b.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
+        assert_ne!(a.as_ptr().ctx, b.as_ptr().ctx);
+    }
+
+    #[test]
+    fn test_depends() {
+        let a = Array::from_slice(&[1.0f32, 2.0], &[2]);
+        let b = Array::from_slice(&[3.0f32, 4.0], &[2]);
+        let dependency = a.multiply(&b).unwrap();
+
+        let out = depends([&a, &b], [&dependency]).unwrap();
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].as_slice::<f32>(), &[1.0, 2.0]);
+        assert_eq!(out[1].as_slice::<f32>(), &[3.0, 4.0]);
+    }
 
     #[test]
     fn test_diagonal() {

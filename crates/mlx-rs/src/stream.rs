@@ -230,6 +230,23 @@ impl Stream {
         i32::try_from_op(|res| unsafe { mlx_sys::mlx_stream_get_index(res, self.c_stream) })
     }
 
+    /// Get the device this stream runs on.
+    pub fn device(&self) -> Result<Device> {
+        Device::try_from_op(|res| unsafe { mlx_sys::mlx_stream_get_device(res, self.c_stream) })
+    }
+
+    /// Make this the default stream for its device.
+    ///
+    /// The device itself is unchanged; use [`Device::set_default`] to change which device the
+    /// default stream is resolved on.
+    pub fn set_default(stream: &Stream) -> Result<()> {
+        <()>::try_from_op(|_res| unsafe { mlx_sys::mlx_set_default_stream(stream.c_stream) })?;
+        // The default stream for the current default device may have changed, so every
+        // thread's cached default stream is now stale.
+        DEFAULT_STREAM_GENERATION.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
     fn describe(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         unsafe {
             let mut mlx_str = mlx_sys::mlx_string_new();
@@ -277,6 +294,15 @@ impl PartialEq for Stream {
     }
 }
 
+/// Block until all work previously submitted to `stream` has finished.
+///
+/// MLX evaluates lazily and asynchronously, so this is only needed when the completion of the
+/// work matters on its own — timing a benchmark, or observing a side effect outside MLX.
+/// Reading array data (for example with `as_slice`) already synchronizes.
+pub fn synchronize(stream: impl AsRef<Stream>) -> Result<()> {
+    <()>::try_from_op(|_res| unsafe { mlx_sys::mlx_synchronize(stream.as_ref().c_stream) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +348,35 @@ mod tests {
         let gpu_stream = Stream::new();
         assert_ne!(cpu_stream, gpu_stream);
         assert_eq!(gpu_stream, Stream::new());
+    }
+
+    #[test]
+    fn test_stream_get_device() {
+        assert_eq!(Stream::cpu().device().unwrap(), Device::cpu());
+        assert_eq!(Stream::gpu().device().unwrap(), Device::gpu());
+    }
+
+    #[test]
+    fn test_synchronize() {
+        let a = crate::Array::from_slice(&[1.0f32, 2.0], &[2]);
+        let b = a.add(&a).unwrap();
+        synchronize(Stream::cpu()).unwrap();
+        assert_eq!(b.as_slice::<f32>(), &[2.0, 4.0]);
+    }
+
+    #[test]
+    fn test_set_default_stream() {
+        Device::set_default(&Device::cpu());
+        let previous = Stream::default();
+
+        // A freshly created stream on the same device has its own index, so making
+        // it the default is observable through `Stream::default()`.
+        let fresh = Stream::new_with_device(&Device::cpu());
+        Stream::set_default(&fresh).unwrap();
+        assert_eq!(Stream::default(), fresh);
+
+        Stream::set_default(&previous).unwrap();
+        assert_eq!(Stream::default(), previous);
     }
 
     #[test]

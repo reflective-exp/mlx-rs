@@ -285,14 +285,17 @@ pub mod macros; // Must be first to ensure the other modules can use the macros
 
 mod array;
 pub mod builder;
+pub mod cuda;
 mod device;
 mod dtype;
 pub mod error;
 pub mod fast;
 pub mod fft;
+pub mod graph_utils;
 pub mod linalg;
 pub mod losses;
 pub mod memory;
+pub mod metal;
 pub mod module;
 pub mod nested;
 pub mod nn;

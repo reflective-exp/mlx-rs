@@ -156,11 +156,12 @@
 //! ```
 
 mod fftn;
+mod freq;
 mod rfftn;
 mod shift;
 mod utils;
 
-pub use self::{fftn::*, rfftn::*, shift::*};
+pub use self::{fftn::*, freq::*, rfftn::*, shift::*};
 
 /// Normalization mode applied to an FFT.
 ///

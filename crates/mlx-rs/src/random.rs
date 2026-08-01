@@ -154,6 +154,16 @@ fn resolve_global_key() -> Result<Array> {
     state.next()
 }
 
+/// Convert an optional array into the nullable `mlx_array` the C API expects.
+fn optional_array(a: Option<&Array>) -> mlx_sys::mlx_array {
+    a.map_or(
+        mlx_sys::mlx_array {
+            ctx: std::ptr::null_mut(),
+        },
+        |a| a.as_ptr(),
+    )
+}
+
 /// Use given key or generate a new one if `None`.
 fn resolve<'a>(key: impl Into<Option<&'a Array>>) -> Result<Cow<'a, Array>> {
     key.into().map_or_else(
@@ -302,6 +312,220 @@ pub fn normal_device<'a, T: ArrayElement>(
             T::DTYPE.into(),
             loc.into().unwrap_or(0.0),
             scale.into().unwrap_or(1.0),
+            key.as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Generate an array of random unsigned integers built from raw PRNG bits.
+///
+/// The output dtype is the unsigned integer type of the requested `width` in bytes: `1` yields
+/// `uint8`, `2` yields `uint16`, `4` yields `uint32` and `8` yields `uint64`.
+///
+/// # Params
+///
+///  - shape: shape of the output, if `None` a single value is returned
+///  - width: bytes per element, default is `4`
+///  - key: PRNG key
+///
+/// # Example
+///
+/// ```rust
+/// let key = mlx_rs::random::key(0).unwrap();
+///
+/// let array = mlx_rs::random::bits(&[10, 5], None, &key).unwrap();
+/// assert_eq!(array.dtype(), mlx_rs::Dtype::Uint32);
+/// ```
+#[generate_macro(customize(root = "$crate::random"))]
+#[default_device]
+pub fn bits_device<'a>(
+    #[optional] shape: impl IntoOption<&'a [i32]>,
+    #[optional] width: impl Into<Option<i32>>,
+    #[optional] key: impl Into<Option<&'a Array>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let shape = shape.into_option().unwrap_or(&[]);
+    let key = resolve(key)?;
+
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_random_bits(
+            res,
+            shape.as_ptr(),
+            shape.len(),
+            width.into().unwrap_or(4),
+            key.as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Sample from the Laplace distribution.
+///
+/// The values are sampled from a Laplace distribution with the given location and scale, whose
+/// density is `exp(-|x - loc| / scale) / (2 * scale)`.
+///
+/// # Params
+///
+///  - shape: shape of the output, if `None` a single value is returned
+///  - loc: location of the distribution, default is `0.0`
+///  - scale: scale of the distribution, default is `1.0`
+///  - key: PRNG key
+///
+/// # Example
+///
+/// ```rust
+/// let key = mlx_rs::random::key(0).unwrap();
+///
+/// // generate a single f32 with Laplace distribution
+/// let value = mlx_rs::random::laplace::<f32>(None, None, None, &key).unwrap().item::<f32>();
+///
+/// // generate an array of f32 with Laplace distribution in shape [10, 5]
+/// let array = mlx_rs::random::laplace::<f32>(&[10, 5], None, None, &key);
+/// ```
+#[generate_macro(customize(root = "$crate::random"))]
+#[default_device]
+pub fn laplace_device<'a, T: ArrayElement>(
+    #[optional] shape: impl IntoOption<&'a [i32]>,
+    #[optional] loc: impl Into<Option<f32>>,
+    #[optional] scale: impl Into<Option<f32>>,
+    #[optional] key: impl Into<Option<&'a Array>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let shape = shape.into_option().unwrap_or(&[]);
+    let key = resolve(key)?;
+
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_random_laplace(
+            res,
+            shape.as_ptr(),
+            shape.len(),
+            T::DTYPE.into(),
+            loc.into().unwrap_or(0.0),
+            scale.into().unwrap_or(1.0),
+            key.as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// Randomly permute the elements of an array along the given axis.
+///
+/// # Params
+///
+///  - a: array to permute
+///  - axis: axis to permute along, default is `0`
+///  - key: PRNG key
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::Array;
+///
+/// let key = mlx_rs::random::key(0).unwrap();
+///
+/// let a = Array::from_slice(&[0i32, 1, 2, 3, 4], &[5]);
+/// let permuted = mlx_rs::random::permutation(&a, None, &key).unwrap();
+/// assert_eq!(permuted.shape(), &[5]);
+/// ```
+#[generate_macro(customize(root = "$crate::random"))]
+#[default_device]
+pub fn permutation_device<'a>(
+    a: impl AsRef<Array>,
+    #[optional] axis: impl Into<Option<i32>>,
+    #[optional] key: impl Into<Option<&'a Array>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let key = resolve(key)?;
+
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_random_permutation(
+            res,
+            a.as_ref().as_ptr(),
+            axis.into().unwrap_or(0),
+            key.as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// A random permutation of `arange(x)`.
+///
+/// # Params
+///
+///  - x: upper bound (exclusive) of the range to permute
+///  - key: PRNG key
+///
+/// # Example
+///
+/// ```rust
+/// let key = mlx_rs::random::key(0).unwrap();
+///
+/// let permuted = mlx_rs::random::permutation_arange(5, &key).unwrap();
+/// assert_eq!(permuted.shape(), &[5]);
+/// ```
+#[generate_macro(customize(root = "$crate::random"))]
+#[default_device]
+pub fn permutation_arange_device<'a>(
+    x: i32,
+    #[optional] key: impl Into<Option<&'a Array>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let key = resolve(key)?;
+
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_random_permutation_arange(res, x, key.as_ptr(), stream.as_ref().as_ptr())
+    })
+}
+
+/// Generate normally distributed random numbers with broadcastable `loc` and `scale`.
+///
+/// Unlike [`normal`], which takes scalar parameters, `loc` and `scale` are arrays that are
+/// broadcast against `shape`. This makes it possible to draw each element from a differently
+/// parameterized normal distribution in a single call.
+///
+/// # Params
+///
+///  - shape: shape of the output, if `None` a single value is returned
+///  - loc: mean of the distribution, broadcast against `shape`
+///  - scale: standard deviation of the distribution, broadcast against `shape`
+///  - key: PRNG key
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::Array;
+///
+/// let key = mlx_rs::random::key(0).unwrap();
+///
+/// // each column is drawn around its own mean
+/// let loc = Array::from_slice(&[0.0f32, 100.0], &[2]);
+/// let scale = Array::from_slice(&[0.01f32, 0.01], &[2]);
+/// let array = mlx_rs::random::normal_broadcast::<f32>(&[3, 2], &loc, &scale, &key).unwrap();
+/// assert_eq!(array.shape(), &[3, 2]);
+/// ```
+#[generate_macro(customize(root = "$crate::random"))]
+#[default_device]
+pub fn normal_broadcast_device<'a, T: ArrayElement>(
+    #[optional] shape: impl IntoOption<&'a [i32]>,
+    #[optional] loc: impl Into<Option<&'a Array>>,
+    #[optional] scale: impl Into<Option<&'a Array>>,
+    #[optional] key: impl Into<Option<&'a Array>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let shape = shape.into_option().unwrap_or(&[]);
+    let key = resolve(key)?;
+    let loc = optional_array(loc.into());
+    let scale = optional_array(scale.into());
+
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_random_normal_broadcast(
+            res,
+            shape.as_ptr(),
+            shape.len(),
+            T::DTYPE.into(),
+            loc,
+            scale,
             key.as_ptr(),
             stream.as_ref().as_ptr(),
         )
@@ -635,6 +859,79 @@ mod tests {
         let (r1, r2) = split(&key, 2).unwrap();
         assert!(r1 == k1);
         assert!(r2 == k2);
+    }
+
+    #[test]
+    fn test_bits() {
+        let key = key(0).unwrap();
+
+        let a = bits(&[4], None, &key).unwrap();
+        assert_eq!(a.shape(), &[4]);
+        assert_eq!(a.dtype(), crate::Dtype::Uint32);
+
+        // A narrower width yields a narrower unsigned integer type
+        let b = bits(&[4], 2, &key).unwrap();
+        assert_eq!(b.dtype(), crate::Dtype::Uint16);
+
+        // Same key reproduces the same bits
+        let c = bits(&[4], None, &key).unwrap();
+        assert_eq!(a.as_slice::<u32>(), c.as_slice::<u32>());
+    }
+
+    #[test]
+    fn test_laplace() {
+        let key = key(0).unwrap();
+
+        let a = laplace::<f32>(&[10, 5], None, None, &key).unwrap();
+        assert_eq!(a.shape(), &[10, 5]);
+        assert_eq!(a.dtype(), crate::Dtype::Float32);
+
+        // A large loc shifts the whole sample away from zero
+        let shifted = laplace::<f32>(&[100], 100.0, 0.1, &key).unwrap();
+        assert!(shifted.min(None).unwrap().item::<f32>() > 50.0);
+    }
+
+    #[test]
+    fn test_permutation() {
+        let key = key(0).unwrap();
+
+        let a = Array::from_slice(&[0i32, 1, 2, 3, 4], &[5]);
+        let p = permutation(&a, None, &key).unwrap();
+        assert_eq!(p.shape(), &[5]);
+
+        let mut sorted = p.as_slice::<i32>().to_vec();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_permutation_arange() {
+        let key = key(0).unwrap();
+
+        // `permutation(int)` is implemented as an argsort of random bits, so it is unsigned
+        let p = permutation_arange(5, &key).unwrap();
+        assert_eq!(p.shape(), &[5]);
+        assert_eq!(p.dtype(), crate::Dtype::Uint32);
+
+        let mut sorted = p.as_slice::<u32>().to_vec();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_normal_broadcast() {
+        let key = key(0).unwrap();
+
+        let loc = Array::from_slice(&[0.0f32, 100.0], &[2]);
+        let scale = Array::from_slice(&[0.01f32, 0.01], &[2]);
+
+        let a = normal_broadcast::<f32>(&[3, 2], &loc, &scale, &key).unwrap();
+        assert_eq!(a.shape(), &[3, 2]);
+
+        // Each column is centered on its own `loc`
+        let data = a.as_slice::<f32>();
+        assert!(data[0].abs() < 1.0);
+        assert!((data[1] - 100.0).abs() < 1.0);
     }
 
     #[test]

@@ -258,6 +258,27 @@ pub(crate) fn get_and_clear_closure_error() -> Option<Exception> {
     CLOSURE_ERROR.with(|closure_error| closure_error.replace(None))
 }
 
+/// Install the MLX error handler so a subsequent failing FFI call records its message.
+///
+/// [`crate::utils::guard::Guarded::try_from_op`] does this itself; call this before FFI that
+/// cannot go through it (out-params of types `Guarded` does not cover).
+pub(crate) fn ensure_error_handler() {
+    INIT_ERR_HANDLER.with(|init| init.call_once(setup_mlx_error_handler));
+}
+
+/// Take the message recorded by the last failing FFI call, falling back to `fallback` when MLX
+/// recorded none. Pair with [`ensure_error_handler`].
+#[track_caller]
+pub(crate) fn last_mlx_error_or(fallback: &str) -> Exception {
+    let what = get_and_clear_last_mlx_error()
+        .map(|e| e.what)
+        .unwrap_or_else(|| fallback.to_string());
+    Exception {
+        what,
+        location: Location::caller(),
+    }
+}
+
 #[track_caller]
 pub(crate) fn get_and_clear_last_mlx_error() -> Option<RawException> {
     LAST_MLX_ERROR.with(|last_error| {
