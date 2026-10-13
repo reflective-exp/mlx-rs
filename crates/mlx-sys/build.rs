@@ -117,6 +117,10 @@ fn main() {
         .header("src/mlx-c/mlx/c/error.h")
         .header("src/mlx-c/mlx/c/transforms_impl.h")
         .clang_arg("-Isrc/mlx-c")
+        // libc declarations pulled in by system headers; their `c_ulong` size parameter trips
+        // rustc's `suspicious_runtime_symbol_definitions` lint
+        .blocklist_function("malloc")
+        .blocklist_function("realloc")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");

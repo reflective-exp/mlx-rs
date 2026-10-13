@@ -6,7 +6,6 @@ use crate::utils::{IntoOption, VectorArray};
 use crate::{Array, Stream};
 use mlx_internal_macros::{default_device, generate_macro};
 use smallvec::SmallVec;
-use std::f64;
 use std::ffi::CString;
 
 /// Order of the norm
