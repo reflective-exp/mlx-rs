@@ -4,6 +4,68 @@ use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::{Array, Stream, error::Result, utils::guard::Guarded};
 
+/// Which side of a run of equal values [`search_sorted`] inserts at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchSide {
+    /// Insert before equal values (the first suitable index).
+    #[default]
+    Left,
+
+    /// Insert after equal values (the last suitable index).
+    Right,
+}
+
+impl SearchSide {
+    fn as_c_str(self) -> &'static std::ffi::CStr {
+        match self {
+            Self::Left => c"left",
+            Self::Right => c"right",
+        }
+    }
+}
+
+/// Find the indices at which `values` would be inserted into `sorted` to keep it sorted.
+///
+/// The result has the shape of `values` and dtype `uint32`. `sorted` must be one-dimensional and
+/// sorted in ascending order; this is not checked, and an unsorted input gives unspecified results.
+///
+/// # Params
+///
+/// - `sorted`: one-dimensional input sorted in ascending order
+/// - `values`: values to locate
+/// - `side`: where to insert among equal values -- defaults to [`SearchSide::Left`]
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{array, ops::*};
+///
+/// let sorted = array!([1, 2, 2, 3]);
+/// let left = search_sorted(&sorted, array!([2]), None).unwrap();
+/// let right = search_sorted(&sorted, array!([2]), SearchSide::Right).unwrap();
+/// assert_eq!(left.as_slice::<u32>(), &[1]);
+/// assert_eq!(right.as_slice::<u32>(), &[3]);
+/// ```
+#[generate_macro]
+#[default_device]
+pub fn search_sorted_device(
+    sorted: impl AsRef<Array>,
+    values: impl AsRef<Array>,
+    #[optional] side: impl Into<Option<SearchSide>>,
+    #[optional] stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let side = side.into().unwrap_or_default();
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_searchsorted(
+            res,
+            sorted.as_ref().as_ptr(),
+            values.as_ref().as_ptr(),
+            side.as_c_str().as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 /// Returns a sorted copy of the array. Returns an error if the arguments are invalid.
 ///
 /// # Params
@@ -261,7 +323,27 @@ pub fn argpartition_device(
 
 #[cfg(test)]
 mod tests {
-    use crate::Array;
+    use super::{SearchSide, search_sorted};
+    use crate::{Array, array};
+
+    #[test]
+    fn search_sorted_sides_differ_on_ties() {
+        let sorted = array!([1.0f32, 2.0, 2.0, 2.0, 5.0]);
+        let values = array!([[0.0f32, 2.0], [3.0, 9.0]]);
+
+        let left = search_sorted(&sorted, &values, None).unwrap();
+        assert_eq!(left.shape(), &[2, 2]);
+        assert_eq!(left.as_slice::<u32>(), &[0, 1, 4, 5]);
+
+        let right = search_sorted(&sorted, &values, SearchSide::Right).unwrap();
+        assert_eq!(right.as_slice::<u32>(), &[0, 4, 4, 5]);
+    }
+
+    #[test]
+    fn search_sorted_rejects_multidimensional_sequence() {
+        let sorted = array!([[1, 2], [3, 4]]);
+        assert!(search_sorted(&sorted, array!([2]), None).is_err());
+    }
 
     #[test]
     fn test_sort_with_invalid_axis() {

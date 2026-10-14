@@ -13,6 +13,85 @@ use thiserror::Error;
 /// Type alias for a `Result` with an `Exception` error type.
 pub type Result<T> = std::result::Result<T, Exception>;
 
+/// Error reading, building, or writing a [`crate::io::GgufFile`].
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum GgufError {
+    /// The path does not point to an existing file.
+    #[error("path must point to a local file")]
+    NotFile,
+
+    /// The path is not valid UTF-8.
+    #[error("path is not valid UTF-8")]
+    InvalidPathUtf8,
+
+    /// The path does not end in `.gguf`.
+    #[error("path must have a .gguf extension")]
+    UnsupportedExtension,
+
+    /// A key or string value contains an interior nul byte.
+    #[error("GGUF text contains an interior nul byte")]
+    InteriorNul,
+
+    /// A key or string read from the file is not valid UTF-8.
+    #[error("GGUF text is not valid UTF-8")]
+    InvalidUtf8,
+
+    /// A tensor with this key is already present.
+    #[error("array key {key:?} already exists")]
+    ArrayKeyAlreadyExists {
+        /// The duplicate key.
+        key: String,
+    },
+
+    /// Metadata with this key is already present.
+    #[error("metadata key {key:?} already exists")]
+    MetadataKeyAlreadyExists {
+        /// The duplicate key.
+        key: String,
+    },
+
+    /// The metadata holds a different kind of value than requested.
+    #[error("metadata {key:?} has kind {actual:?}, expected {expected:?}")]
+    WrongMetadataKind {
+        /// The metadata key.
+        key: String,
+        /// The requested kind.
+        expected: crate::io::GgufMetadataKind,
+        /// The stored kind.
+        actual: crate::io::GgufMetadataKind,
+    },
+
+    /// GGUF cannot store tensors of this dtype.
+    #[error("tensor dtype {dtype:?} cannot be written as GGUF")]
+    UnsupportedTensorDtype {
+        /// The rejected dtype.
+        dtype: Dtype,
+    },
+
+    /// GGUF cannot store metadata arrays of this dtype.
+    #[error("metadata array dtype {dtype:?} cannot be written as GGUF")]
+    UnsupportedMetadataArrayDtype {
+        /// The rejected dtype.
+        dtype: Dtype,
+    },
+
+    /// GGUF metadata arrays must be scalar or one-dimensional.
+    #[error("metadata arrays must be scalar or one-dimensional, found rank {rank}")]
+    InvalidMetadataArrayRank {
+        /// The rejected rank.
+        rank: usize,
+    },
+
+    /// GGUF metadata arrays cannot be empty.
+    #[error("metadata arrays cannot be empty")]
+    EmptyMetadataArray,
+
+    /// MLX reported an error.
+    #[error(transparent)]
+    Exception(#[from] Exception),
+}
+
 /// Error with io operations
 #[derive(Error, PartialEq, Debug)]
 pub enum IoError {

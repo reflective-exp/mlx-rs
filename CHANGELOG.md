@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+Added:
+
+- `io::GgufFile`: load and save GGUF files with tensors and typed metadata (arrays, strings,
+  string lists). Q4_0, Q4_1 and Q8_0 tensors load as quantized triplets. `mlx-sys` now links
+  MLX's `gguflib`.
+- `ops::search_sorted` with `SearchSide`.
+- `ops::indexing::TryIndexUpdateOp` and `UpdateMode::{Replace, Add, Min, Max, Product}`:
+  functional updates through the same indices as `index_mut`, returning a new array.
+
 The mlx-c submodule now tracks upstream `ml-explore/mlx-c` at `c74db530` (MLX 0.32.2) instead
 of a fork. `as_type`/`as_dtype`/`astype` keep their `copy` flag; upstream `mlx_astype` dropped
 it, so a forced same-dtype copy uses `mlx_copy`.

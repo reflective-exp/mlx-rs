@@ -5,13 +5,16 @@ use smallvec::{SmallVec, smallvec};
 use crate::constants::DEFAULT_STACK_VEC_LEN;
 use crate::error::Result;
 use crate::ops::indexing::{count_non_new_axis_operations, expand_ellipsis_operations};
-use crate::ops::{broadcast_arrays_device, broadcast_to_device, reshape_device};
-use crate::utils::{VectorArray, resolve_index_signed_unchecked};
+use crate::ops::{
+    add_device, broadcast_arrays_device, broadcast_to_device, maximum_device, minimum_device,
+    multiply_device, reshape_device,
+};
+use crate::utils::resolve_index_signed_unchecked;
 use crate::{Array, Stream};
 
 use mlx_internal_macros::default_device;
 
-use super::{ArrayIndex, ArrayIndexOp, Guarded, RangeIndex, TryIndexMutOp};
+use super::{ArrayIndex, ArrayIndexOp, Guarded, RangeIndex, TryIndexMutOp, UpdateMode};
 
 impl Array {
     /// Return a copy of the array with the region `[starts, ends)` (stepped by
@@ -67,11 +70,48 @@ impl Array {
     }
 }
 
+/// `slice_update` and its accumulating variants, chosen by `mode`.
+fn slice_update_with_mode(
+    src: &Array,
+    update: &Array,
+    starts: &[i32],
+    ends: &[i32],
+    strides: &[i32],
+    mode: UpdateMode,
+    stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    let update_fn = match mode {
+        UpdateMode::Replace => super::slice_update_device,
+        UpdateMode::Add => super::slice_update_add_device,
+        UpdateMode::Min => super::slice_update_min_device,
+        UpdateMode::Max => super::slice_update_max_device,
+        UpdateMode::Product => super::slice_update_prod_device,
+    };
+    update_fn(src, update, starts, ends, strides, stream.as_ref())
+}
+
+/// Combine `update`, already broadcast to `src`'s shape, with every element of `src`.
+fn update_whole_array(
+    src: &Array,
+    update: Array,
+    mode: UpdateMode,
+    stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    match mode {
+        UpdateMode::Replace => Ok(update),
+        UpdateMode::Add => add_device(src, update, stream),
+        UpdateMode::Min => minimum_device(src, update, stream),
+        UpdateMode::Max => maximum_device(src, update, stream),
+        UpdateMode::Product => multiply_device(src, update, stream),
+    }
+}
+
 // See `updateSlice` in the swift binding or `mlx_slice_update` in the python binding
 fn update_slice(
     src: &Array,
     operations: &[ArrayIndexOp],
     update: &Array,
+    mode: UpdateMode,
     stream: impl AsRef<Stream>,
 ) -> Result<Option<Array>> {
     let ndim = src.ndim();
@@ -96,8 +136,8 @@ fn update_slice(
         ends[0] = range_index.end(size);
         strides[0] = range_index.stride();
 
-        return Ok(Some(src.slice_update_device(
-            &update, &starts, &ends, &strides, &stream,
+        return Ok(Some(slice_update_with_mode(
+            src, &update, &starts, &ends, &strides, mode, &stream,
         )?));
     }
 
@@ -112,7 +152,8 @@ fn update_slice(
     // If no non-None indices return the broadcasted update
     let non_new_axis_operation_count = count_non_new_axis_operations(&operations);
     if non_new_axis_operation_count == 0 {
-        return Ok(Some(broadcast_to_device(&update, src.shape(), &stream)?));
+        let update = broadcast_to_device(&update, src.shape(), &stream)?;
+        return Ok(Some(update_whole_array(src, update, mode, &stream)?));
     }
 
     // Process entries
@@ -175,8 +216,8 @@ fn update_slice(
         update = Cow::Owned(reshape_device(update, &update_reshape, &stream)?);
     }
 
-    Ok(Some(src.slice_update_device(
-        &update, &starts, &ends, &strides, &stream,
+    Ok(Some(slice_update_with_mode(
+        src, &update, &starts, &ends, &strides, mode, &stream,
     )?))
 }
 
@@ -576,26 +617,48 @@ fn strided_range_to_vec(start: i32, exclusive_end: i32, stride: i32) -> Vec<i32>
     vec
 }
 
-unsafe fn scatter_device(
+/// `scatter` and its accumulating variants, chosen by `mode`.
+fn scatter_with_mode(
     a: &Array,
-    indices: &[impl AsRef<Array>],
+    indices: &[Cow<'_, Array>],
     updates: &Array,
     axes: &[i32],
+    mode: UpdateMode,
     stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    let indices_vector = VectorArray::try_from_iter(indices.iter())?;
+    let indices = indices.iter().map(|index| index.as_ref());
+    let stream = stream.as_ref();
+    match mode {
+        UpdateMode::Replace => super::scatter_device(a, indices, updates, axes, stream),
+        UpdateMode::Add => super::scatter_add_device(a, indices, updates, axes, stream),
+        UpdateMode::Min => super::scatter_min_device(a, indices, updates, axes, stream),
+        UpdateMode::Max => super::scatter_max_device(a, indices, updates, axes, stream),
+        UpdateMode::Product => super::scatter_prod_device(a, indices, updates, axes, stream),
+    }
+}
 
-    Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_scatter(
-            res,
-            a.as_ptr(),
-            indices_vector.as_ptr(),
-            updates.as_ptr(),
-            axes.as_ptr(),
-            axes.len(),
-            stream.as_ref().as_ptr(),
-        )
-    })
+/// Return a copy of `src` with the positions selected by `operations` combined with `update`.
+pub(super) fn index_update(
+    src: &Array,
+    operations: &[ArrayIndexOp],
+    update: &Array,
+    mode: UpdateMode,
+    stream: impl AsRef<Stream>,
+) -> Result<Array> {
+    if let Some(result) = update_slice(src, operations, update, mode, &stream)? {
+        return Ok(result);
+    }
+
+    let ScatterArgs {
+        indices,
+        update,
+        axes,
+    } = scatter_args(src, operations, update, &stream)?;
+    if indices.is_empty() {
+        // The index selected the whole array, so `update` is already broadcast to its shape.
+        return update_whole_array(src, update, mode, stream);
+    }
+    scatter_with_mode(src, &indices, &update, &axes, mode, stream)
 }
 
 impl Array {
@@ -605,24 +668,7 @@ impl Array {
         update: &Array,
         stream: impl AsRef<Stream>,
     ) -> Result<()> {
-        if let Some(result) = update_slice(self, operations, update, &stream)? {
-            *self = result;
-            return Ok(());
-        }
-
-        let ScatterArgs {
-            indices,
-            update,
-            axes,
-        } = scatter_args(self, operations, update, &stream)?;
-        if !indices.is_empty() {
-            let result = unsafe { scatter_device(self, &indices, &update, &axes, stream)? };
-            drop(indices);
-            *self = result;
-        } else {
-            drop(indices);
-            *self = update;
-        }
+        *self = index_update(self, operations, update, UpdateMode::Replace, stream)?;
         Ok(())
     }
 }

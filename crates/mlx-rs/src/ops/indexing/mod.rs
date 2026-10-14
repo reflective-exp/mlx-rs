@@ -108,6 +108,7 @@ use crate::{Array, Stream, StreamOrDevice};
 
 pub(crate) mod index_impl;
 pub(crate) mod indexmut_impl;
+pub(crate) mod indexupdate_impl;
 
 /* -------------------------------------------------------------------------- */
 /*                                Custom types                                */
@@ -358,6 +359,55 @@ pub trait IndexMutOp<Idx, Val>: TryIndexMutOp<Idx, Val> {
 }
 
 impl<T, Idx, Val> IndexMutOp<Idx, Val> for T where T: TryIndexMutOp<Idx, Val> {}
+
+/// How [`TryIndexUpdateOp`] combines the update with the values already at the indexed positions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UpdateMode {
+    /// Overwrite the indexed values, as [`TryIndexMutOp`] does.
+    #[default]
+    Replace,
+
+    /// Add the update to the indexed values. Repeated indices accumulate.
+    Add,
+
+    /// Keep the smaller of the update and the indexed value.
+    Min,
+
+    /// Keep the larger of the update and the indexed value.
+    Max,
+
+    /// Multiply the indexed values by the update. Repeated indices accumulate.
+    Product,
+}
+
+/// Return a copy of the array with the indexed positions combined with a value per [`UpdateMode`].
+/// Accepts the same indices as [`TryIndexMutOp`].
+///
+/// ```rust
+/// use mlx_rs::{array, ops::indexing::{TryIndexUpdateOp, UpdateMode}};
+///
+/// let a = array!([1.0f32, 1.0, 1.0, 1.0]);
+/// let indices = array!([0u32, 2, 2]);
+///
+/// // Repeated indices accumulate under `Add`.
+/// let b = a.try_index_update(&indices, array!(1.0f32), UpdateMode::Add).unwrap();
+/// assert_eq!(b.as_slice::<f32>(), &[2.0, 1.0, 3.0, 1.0]);
+/// ```
+pub trait TryIndexUpdateOp<Idx, Val> {
+    /// Return a copy of the array with the positions selected by `i` updated with `val`.
+    fn try_index_update_device(
+        &self,
+        i: Idx,
+        val: Val,
+        mode: UpdateMode,
+        stream: impl AsRef<Stream>,
+    ) -> Result<Array>;
+
+    /// Return a copy of the array with the positions selected by `i` updated with `val`.
+    fn try_index_update(&self, i: Idx, val: Val, mode: UpdateMode) -> Result<Array> {
+        self.try_index_update_device(i, val, mode, StreamOrDevice::default())
+    }
+}
 
 /// Trait for custom indexing operations.
 pub trait ArrayIndex<'a> {
