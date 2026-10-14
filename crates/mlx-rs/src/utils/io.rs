@@ -1,4 +1,4 @@
-use crate::error::{Exception, IoError};
+use crate::error::{Exception, IoError, ensure_error_handler, last_mlx_error_or};
 use crate::utils::SUCCESS;
 use crate::{Array, Stream};
 use std::collections::HashMap;
@@ -47,10 +47,11 @@ impl SafeTensors {
     }
 
     pub(crate) fn data(&self) -> Result<HashMap<String, Array>, Exception> {
-        crate::error::INIT_ERR_HANDLER.call_once(crate::error::setup_mlx_error_handler);
+        ensure_error_handler();
         let mut map = HashMap::new();
         unsafe {
-            let iterator = mlx_sys::mlx_map_string_to_array_iterator_new(self.c_data);
+            let iterator =
+                ArrayMapIterator(mlx_sys::mlx_map_string_to_array_iterator_new(self.c_data));
 
             loop {
                 let mut key_ptr: *const ::std::os::raw::c_char = null_mut();
@@ -58,41 +59,35 @@ impl SafeTensors {
                 let status = mlx_sys::mlx_map_string_to_array_iterator_next(
                     &mut key_ptr as *mut *const _,
                     &mut value,
-                    iterator,
+                    iterator.0,
                 );
 
+                if status != SUCCESS {
+                    mlx_sys::mlx_array_free(value);
+                }
                 match status {
                     SUCCESS => {
                         let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
                         let array = Array::from_ptr(value);
                         map.insert(key, array);
                     }
-                    1 => {
-                        mlx_sys::mlx_array_free(value);
-                        return Err(crate::error::get_and_clear_last_mlx_error()
-                            .expect("A non-success status was returned, but no error was set.")
-                            .into());
-                    }
-                    2 => {
-                        mlx_sys::mlx_array_free(value);
-                        break;
-                    }
-                    _ => unreachable!(),
+                    ITERATOR_END => break,
+                    _ => return Err(last_mlx_error_or("Failed to read safetensors arrays")),
                 }
             }
-
-            mlx_sys::mlx_map_string_to_array_iterator_free(iterator);
         }
 
         Ok(map)
     }
 
     pub(crate) fn metadata(&self) -> Result<HashMap<String, String>, Exception> {
-        crate::error::INIT_ERR_HANDLER.call_once(crate::error::setup_mlx_error_handler);
+        ensure_error_handler();
 
         let mut map = HashMap::new();
         unsafe {
-            let iterator = mlx_sys::mlx_map_string_to_string_iterator_new(self.c_metadata);
+            let iterator = StringMapIterator(mlx_sys::mlx_map_string_to_string_iterator_new(
+                self.c_metadata,
+            ));
 
             let mut key: *const ::std::os::raw::c_char = null_mut();
             let mut value: *const ::std::os::raw::c_char = null_mut();
@@ -100,7 +95,7 @@ impl SafeTensors {
                 let status = mlx_sys::mlx_map_string_to_string_iterator_next(
                     &mut key as *mut *const _,
                     &mut value as *mut *const _,
-                    iterator,
+                    iterator.0,
                 );
 
                 match status {
@@ -109,17 +104,33 @@ impl SafeTensors {
                         let value = CStr::from_ptr(value).to_string_lossy().into_owned();
                         map.insert(key, value);
                     }
-                    1 => {
-                        return Err(crate::error::get_and_clear_last_mlx_error()
-                            .expect("A non-success status was returned, but no error was set.")
-                            .into());
-                    }
-                    2 => break,
-                    _ => unreachable!(),
+                    ITERATOR_END => break,
+                    _ => return Err(last_mlx_error_or("Failed to read safetensors metadata")),
                 }
             }
         }
 
         Ok(map)
+    }
+}
+
+/// mlx-c map iterator status after the last entry.
+const ITERATOR_END: i32 = 2;
+
+/// Frees the iterator on every exit path, including early error returns.
+struct ArrayMapIterator(mlx_sys::mlx_map_string_to_array_iterator);
+
+impl Drop for ArrayMapIterator {
+    fn drop(&mut self) {
+        unsafe { mlx_sys::mlx_map_string_to_array_iterator_free(self.0) };
+    }
+}
+
+/// Frees the iterator on every exit path, including early error returns.
+struct StringMapIterator(mlx_sys::mlx_map_string_to_string_iterator);
+
+impl Drop for StringMapIterator {
+    fn drop(&mut self) {
+        unsafe { mlx_sys::mlx_map_string_to_string_iterator_free(self.0) };
     }
 }

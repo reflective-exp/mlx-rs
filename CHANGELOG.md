@@ -25,6 +25,10 @@ The MLX error handler no longer leaks error messages that are overwritten before
 left unread at thread exit. It is registered once per process instead of per thread, since
 mlx-c stores it in unsynchronized globals.
 
+Loading safetensors no longer leaks map iterators: the metadata iterator was never freed, and the
+array iterator leaked on error. An iterator failure with no MLX message now returns an error
+instead of panicking.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,

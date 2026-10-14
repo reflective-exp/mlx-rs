@@ -223,6 +223,26 @@ mod tests {
     }
 
     #[test]
+    fn test_save_arrays_with_metadata() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let path = tmp_dir.path().join("test.safetensors");
+
+        let mut arrays = std::collections::HashMap::new();
+        arrays.insert("foo".to_string(), Array::ones::<i32>(&[1, 2]).unwrap());
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("format".to_string(), "mlx".to_string());
+        metadata.insert("step".to_string(), "42".to_string());
+
+        Array::save_safetensors(&arrays, &metadata, &path).unwrap();
+
+        let (loaded_arrays, loaded_metadata) =
+            Array::load_safetensors_with_metadata(&path).unwrap();
+        assert_eq!(loaded_metadata, metadata);
+        assert_eq!(loaded_arrays.len(), 1);
+        assert_eq!(loaded_arrays["foo"].as_slice::<i32>(), &[1, 1]);
+    }
+
+    #[test]
     fn test_save_array() {
         let tmp_dir = tempfile::tempdir().unwrap();
         let path = tmp_dir.path().join("test.npy");
