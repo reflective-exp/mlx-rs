@@ -29,6 +29,10 @@ Loading safetensors no longer leaks map iterators: the metadata iterator was nev
 array iterator leaked on error. An iterator failure with no MLX message now returns an error
 instead of panicking.
 
+A panic inside a closure passed to a transform (`grad`, `value_and_grad`, `jvp`, `vjp`,
+`compile`, `compile_with_state`) propagates to the caller with its original payload instead of
+aborting the process at the FFI boundary.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,

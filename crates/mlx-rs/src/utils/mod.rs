@@ -4,10 +4,11 @@ use guard::Guarded;
 use mlx_sys::mlx_vector_array;
 
 use crate::error::Exception;
-use crate::error::set_closure_error;
+use crate::error::{set_closure_error, set_closure_panic};
 use crate::module::ModuleParameters;
 use crate::{Array, FromNested, complex64};
 use std::collections::HashMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{marker::PhantomData, rc::Rc};
 
 /// Success status code from the c binding
@@ -319,25 +320,25 @@ extern "C" fn trampoline<'a, F>(
 where
     F: FnMut(&[Array]) -> Vec<Array> + 'a,
 {
-    unsafe {
-        let raw_closure: *mut F = payload as *mut _;
-        // Let the box take care of freeing the closure
-        let mut closure = Box::from_raw(raw_closure);
-        let arrays = match mlx_vector_array_values(vector_array) {
-            Ok(arrays) => arrays,
-            Err(_) => {
-                let _ = Box::into_raw(closure); // prevent premature drop
-                return FAILURE;
-            }
-        };
-        let result = closure(&arrays);
-        let _ = Box::into_raw(closure); // prevent premature drop
-
-        // We should probably keep using new_mlx_vector_array here instead of VectorArray
-        // since we probably don't want to drop the arrays in the closure
-        *ret = new_mlx_vector_array(result);
-
-        SUCCESS
+    // The payload stays owned by MLX (freed through `closure_dtor`), so only borrow it.
+    let closure = unsafe { &mut *(payload as *mut F) };
+    let arrays = match mlx_vector_array_values(vector_array) {
+        Ok(arrays) => arrays,
+        Err(_) => return FAILURE,
+    };
+    // Unwinding out of an `extern "C"` fn aborts the process, so catch the panic here and let
+    // `Guarded::try_from_op` resume it once the FFI call has returned to Rust.
+    match catch_unwind(AssertUnwindSafe(|| closure(&arrays))) {
+        Ok(result) => {
+            // We should probably keep using new_mlx_vector_array here instead of VectorArray
+            // since we probably don't want to drop the arrays in the closure
+            unsafe { *ret = new_mlx_vector_array(result) };
+            SUCCESS
+        }
+        Err(payload) => {
+            set_closure_panic(payload);
+            FAILURE
+        }
     }
 }
 
@@ -349,29 +350,28 @@ extern "C" fn trampoline_fallible<'a, F>(
 where
     F: FnMut(&[Array]) -> Result<Vec<Array>, Exception> + 'a,
 {
-    unsafe {
-        let raw_closure: *mut F = payload as *mut _;
-        let mut closure = Box::from_raw(raw_closure);
-        let arrays = match mlx_vector_array_values(vector_array) {
-            Ok(arrays) => arrays,
-            Err(e) => {
-                let _ = Box::into_raw(closure); // prevent premature drop
-                set_closure_error(e);
-                return FAILURE;
-            }
-        };
-        let result = closure(&arrays);
-        let _ = Box::into_raw(closure); // prevent premature drop
+    // See `trampoline` for why the closure is borrowed and its panics caught.
+    let closure = unsafe { &mut *(payload as *mut F) };
+    let arrays = match mlx_vector_array_values(vector_array) {
+        Ok(arrays) => arrays,
+        Err(e) => {
+            set_closure_error(e);
+            return FAILURE;
+        }
+    };
 
-        match result {
-            Ok(result) => {
-                *ret = new_mlx_vector_array(result);
-                SUCCESS
-            }
-            Err(err) => {
-                set_closure_error(err);
-                FAILURE
-            }
+    match catch_unwind(AssertUnwindSafe(|| closure(&arrays))) {
+        Ok(Ok(result)) => {
+            unsafe { *ret = new_mlx_vector_array(result) };
+            SUCCESS
+        }
+        Ok(Err(err)) => {
+            set_closure_error(err);
+            FAILURE
+        }
+        Err(payload) => {
+            set_closure_panic(payload);
+            FAILURE
         }
     }
 }

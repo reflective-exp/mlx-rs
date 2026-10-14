@@ -262,6 +262,72 @@ mod tests {
 
     use super::*;
 
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use crate::transforms::{compile::compile, grad};
+
+    /// Run `f`, which must panic with `expected`, then check this thread can still use MLX and
+    /// that the panic left no stale error behind.
+    fn assert_panics_and_recovers(expected: &str, f: impl FnOnce()) {
+        let payload = catch_unwind(AssertUnwindSafe(f)).expect_err("closure panic was swallowed");
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap();
+        assert_eq!(message, expected);
+
+        assert!(crate::error::get_and_clear_last_mlx_error().is_none());
+        assert!(crate::error::get_and_clear_closure_error().is_none());
+        let (out, dout) = jvp(
+            |inputs: &[Array]| vec![&inputs[0] * 2.0],
+            &[array!(1.0f32)],
+            &[array!(1.0f32)],
+        )
+        .unwrap();
+        assert_eq!(out[0].item::<f32>(), 2.0);
+        assert_eq!(dout[0].item::<f32>(), 2.0);
+    }
+
+    #[test]
+    fn panic_in_jvp_closure_propagates() {
+        assert_panics_and_recovers("boom in jvp", || {
+            let _ = jvp(
+                |_: &[Array]| -> Vec<Array> { panic!("boom in jvp") },
+                &[array!(1.0f32)],
+                &[array!(1.0f32)],
+            );
+        });
+    }
+
+    #[test]
+    fn panic_in_fallible_closure_propagates() {
+        assert_panics_and_recovers("boom in fallible vjp", || {
+            let _ = fallible_vjp(
+                |_: &[Array]| -> Result<Vec<Array>> { panic!("boom in fallible vjp") },
+                &[array!(1.0f32)],
+                &[array!(1.0f32)],
+            );
+        });
+    }
+
+    #[test]
+    fn panic_in_nested_grad_closure_propagates() {
+        assert_panics_and_recovers("boom in inner grad", || {
+            let inner = |_: &[Array]| -> Vec<Array> { panic!("boom in inner grad") };
+            let outer = move |args: &[Array]| -> Vec<Array> { grad(inner)(args).unwrap() };
+            let _ = grad(outer)(&[array!(1.0f32)]);
+        });
+    }
+
+    #[test]
+    fn panic_in_compiled_closure_propagates() {
+        assert_panics_and_recovers("boom in compile", || {
+            let mut compiled = compile(|_: &Array| -> Array { panic!("boom in compile") }, None);
+            let _ = compiled(&array!(1.0f32));
+        });
+    }
+
     // The unit tests below are adapted from the mlx c++ codebase
 
     #[test]
