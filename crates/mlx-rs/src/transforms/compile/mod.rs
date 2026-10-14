@@ -145,7 +145,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Closure, Guarded, VectorArray};
-use crate::Array;
 use crate::utils::SUCCESS;
 
 #[allow(clippy::module_inception)]
@@ -208,9 +207,9 @@ struct CompiledState<F> {
     f: F,
     shapeless: bool,
     id: usize,
-    /// Number of leading outputs of a traced `compile_with_state` function that are its results
-    /// rather than state. Only tracing records it, so it must persist for cached replays.
-    num_function_outputs: Option<usize>,
+    /// For `compile_with_state`: what the last trace recorded about the state. Only tracing
+    /// records it, so it must persist for cached replays.
+    state_trace: Option<compile_with_state::StateTrace>,
 }
 
 /// Source of compile-cache ids. MLX keys its cache by id alone, so each live compiled function
@@ -223,7 +222,7 @@ impl<F> CompiledState<F> {
             f,
             shapeless,
             id: NEXT_COMPILE_ID.fetch_add(1, Ordering::Relaxed),
-            num_function_outputs: None,
+            state_trace: None,
         }
     }
 }
@@ -238,14 +237,11 @@ impl<F: Clone> Clone for CompiledState<F> {
 impl<F> Drop for CompiledState<F> {
     fn drop(&mut self) {
         // remove the compiled structure from the back end
-        let id = self.id;
-        with_compile_cache(|cache| unsafe { mlx_sys::mlx_detail_compile_erase(cache, id) });
+        erase_compiled(self.id);
     }
 }
 
-fn update_by_replace_with_ref_to_new_array(src: &mut Array, new_array: &Array) {
-    debug_assert_eq!(src.shape(), new_array.shape());
-    unsafe {
-        mlx_sys::mlx_array_set(&mut src.as_ptr() as *mut _, new_array.as_ptr());
-    }
+/// Drop the cached graph for compiled function `id`, so its next call traces afresh.
+fn erase_compiled(id: usize) {
+    with_compile_cache(|cache| unsafe { mlx_sys::mlx_detail_compile_erase(cache, id) });
 }

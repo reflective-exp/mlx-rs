@@ -6,7 +6,7 @@ use crate::error::AdafactorBuildError;
 use crate::ops::{
     matmul, maximum, mean, mean_axes, minimum, rsqrt, sqrt, square, zeros_dtype, zeros_like,
 };
-use crate::utils::{Updatable, try_get_mut_or_insert_with};
+use crate::utils::try_get_mut_or_insert_with;
 use crate::{Array, array};
 
 use super::*;
@@ -40,52 +40,16 @@ pub struct AdafactorState {
 impl OptimizerState for State<AdafactorState> {
     type UnflattenError = UnflattenError;
 
-    fn flatten(&self) -> impl Iterator<Item = (Rc<str>, &Array)> {
-        self.iter().flat_map(|(k, v)| {
-            let mut iter = vec![(Rc::from(format!("{k}.step")), &v.step)];
-
-            if let Some(exp_avg_sq_row) = &v.exp_avg_sq_row {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq_row")), exp_avg_sq_row));
-            }
-
-            if let Some(exp_avg_sq_col) = &v.exp_avg_sq_col {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq_col")), exp_avg_sq_col));
-            }
-
-            if let Some(exp_avg_sq) = &v.exp_avg_sq {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq")), exp_avg_sq));
-            }
-
-            if let Some(exp_avg) = &v.exp_avg {
-                iter.push((Rc::from(format!("{k}.exp_avg")), exp_avg));
-            }
-
-            iter
-        })
-    }
-
-    fn flatten_mut(&mut self) -> impl Iterator<Item = (Rc<str>, &mut Array)> {
-        self.iter_mut().flat_map(|(k, v)| {
-            let mut iter = vec![(Rc::from(format!("{k}.step")), &mut v.step)];
-
-            if let Some(exp_avg_sq_row) = &mut v.exp_avg_sq_row {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq_row")), exp_avg_sq_row));
-            }
-
-            if let Some(exp_avg_sq_col) = &mut v.exp_avg_sq_col {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq_col")), exp_avg_sq_col));
-            }
-
-            if let Some(exp_avg_sq) = &mut v.exp_avg_sq {
-                iter.push((Rc::from(format!("{k}.exp_avg_sq")), exp_avg_sq));
-            }
-
-            if let Some(exp_avg) = &mut v.exp_avg {
-                iter.push((Rc::from(format!("{k}.exp_avg")), exp_avg));
-            }
-
-            iter
-        })
+    fn state_projection(&mut self) -> Result<StateProjection<'_>, StateProjectionError> {
+        let mut projection = StateProjection::new();
+        for (key, state) in self {
+            projection.required(format!("{key}.step"), &mut state.step)?;
+            projection.optional(format!("{key}.exp_avg_sq_row"), &mut state.exp_avg_sq_row)?;
+            projection.optional(format!("{key}.exp_avg_sq_col"), &mut state.exp_avg_sq_col)?;
+            projection.optional(format!("{key}.exp_avg_sq"), &mut state.exp_avg_sq)?;
+            projection.optional(format!("{key}.exp_avg"), &mut state.exp_avg)?;
+        }
+        Ok(projection)
     }
 
     fn unflatten<I, K>(input: I) -> Result<Self, Self::UnflattenError>
@@ -423,59 +387,6 @@ impl Optimizer for Adafactor {
         *parameter = parameter.subtract(&update)?;
 
         Ok(())
-    }
-}
-
-impl Updatable for Adafactor {
-    fn updatable_states_len(&self) -> usize {
-        self.updatable_states().into_iter().count()
-    }
-
-    fn updatable_states(&self) -> impl IntoIterator<Item = &Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .flat_map(|(_, v)| {
-                // [step, expAvgSqRow, expAvgSqCol, expAvgSq, expAvg]; `step` drives the
-                // relative step size and decay, so compiled updates must carry it.
-                std::iter::once(&v.step)
-                    .chain(
-                        [
-                            &v.exp_avg_sq_row,
-                            &v.exp_avg_sq_col,
-                            &v.exp_avg_sq,
-                            &v.exp_avg,
-                        ]
-                        .into_iter()
-                        .filter_map(|v| v.as_ref()),
-                    )
-                    .collect::<Vec<_>>()
-            })
-    }
-
-    fn updatable_states_mut(&mut self) -> impl IntoIterator<Item = &mut Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter_mut()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .flat_map(|(_, v)| {
-                // Same order as `updatable_states`.
-                std::iter::once(&mut v.step)
-                    .chain(
-                        [
-                            &mut v.exp_avg_sq_row,
-                            &mut v.exp_avg_sq_col,
-                            &mut v.exp_avg_sq,
-                            &mut v.exp_avg,
-                        ]
-                        .into_iter()
-                        .filter_map(|v| v.as_mut()),
-                    )
-                    .collect::<Vec<_>>()
-            })
     }
 }
 

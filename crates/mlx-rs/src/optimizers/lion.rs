@@ -1,6 +1,6 @@
 use mlx_internal_macros::{Buildable, generate_builder};
 
-use crate::utils::{Updatable, get_mut_or_insert_with};
+use crate::utils::get_mut_or_insert_with;
 use crate::{Array, array};
 
 use super::*;
@@ -98,30 +98,6 @@ impl Optimizer for Lion {
         *parameter = parameter.subtract(lr.multiply(sign(&c)?)?)?;
 
         Ok(())
-    }
-}
-
-impl Updatable for Lion {
-    fn updatable_states_len(&self) -> usize {
-        self.state.len()
-    }
-
-    fn updatable_states(&self) -> impl IntoIterator<Item = &Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .map(|(_, v)| v)
-    }
-
-    fn updatable_states_mut(&mut self) -> impl IntoIterator<Item = &mut Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter_mut()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .map(|(_, v)| v)
     }
 }
 

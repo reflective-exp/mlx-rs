@@ -92,6 +92,49 @@ pub enum GgufError {
     Exception(#[from] Exception),
 }
 
+/// Error declaring, restoring, or applying a keyed [`crate::utils::StateProjection`].
+#[derive(Debug, PartialEq, Error)]
+pub enum StateProjectionError {
+    /// A projection declared the same key more than once.
+    #[error("duplicate state key {0}")]
+    DuplicateKey(String),
+
+    /// A projected key was absent from the supplied snapshot.
+    #[error("state snapshot is missing key {0}")]
+    MissingKey(String),
+
+    /// The supplied snapshot contains keys absent from the projection.
+    #[error("state snapshot contains unknown keys {0:?}")]
+    UnknownKeys(Vec<String>),
+
+    /// A required slot was absent in the supplied snapshot.
+    #[error("required state key {0} is absent")]
+    RequiredSlotAbsent(String),
+
+    /// A list of state values does not match the number of present slots.
+    #[error("state value count mismatch: expected {expected}, found {actual}")]
+    Cardinality {
+        /// The number of present slots.
+        expected: usize,
+        /// The number of values supplied.
+        actual: usize,
+    },
+
+    /// MLX rejected an operation needed to restore state.
+    #[error(transparent)]
+    Exception(#[from] Exception),
+}
+
+impl From<StateProjectionError> for Exception {
+    #[track_caller]
+    fn from(error: StateProjectionError) -> Self {
+        match error {
+            StateProjectionError::Exception(error) => error,
+            error => Exception::custom(error.to_string()),
+        }
+    }
+}
+
 /// Error with io operations
 #[derive(Error, PartialEq, Debug)]
 pub enum IoError {
@@ -130,6 +173,10 @@ pub enum IoError {
     /// Error with unfalttening the loaded optimizer state
     #[error(transparent)]
     Unflatten(#[from] UnflattenError),
+
+    /// Error projecting optimizer state for saving
+    #[error(transparent)]
+    StateProjection(#[from] StateProjectionError),
 
     /// Exception
     #[error(transparent)]

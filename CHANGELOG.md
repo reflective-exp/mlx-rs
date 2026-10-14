@@ -11,6 +11,21 @@ Added:
 - `ops::indexing::TryIndexUpdateOp` and `UpdateMode::{Replace, Add, Min, Max, Product}`:
   functional updates through the same indices as `index_mut`, returning a new array.
 
+Breaking: keyed state. `Updatable` is now one method, `state_projection`, which declares every
+mutable array under a key (`utils::StateProjection`, with required and optional slots) instead of
+three positional `updatable_states*` methods that had to agree on order. Optimizers implement it
+through `OptimizerState::state_projection`, which also replaces `OptimizerState::flatten`/
+`flatten_mut` as the thing to implement; those two, and `save_safetensors`, now take `&mut self`
+and return a `Result`. Saving, loading and `compile_with_state` all derive from the one
+declaration.
+
+`compile_with_state` writes state back by key and checks the output count exactly, instead of
+zipping outputs onto state by position. A call whose state layout differs from the cached
+graph's (an optimizer's first step, an added parameter) retraces instead of misreading inputs,
+and a failed call restores the state. The blind retry after a failed call is gone; its one case,
+an optimizer's first step creating several zero slots that MLX's compiler cannot return from a
+trace, now retraces deliberately.
+
 The mlx-c submodule now tracks upstream `ml-explore/mlx-c` at `c74db530` (MLX 0.32.2) instead
 of a fork. `as_type`/`as_dtype`/`astype` keep their `copy` flag; upstream `mlx_astype` dropped
 it, so a forced same-dtype copy uses `mlx_copy`.

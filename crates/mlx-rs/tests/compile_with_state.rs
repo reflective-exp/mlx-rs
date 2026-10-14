@@ -13,8 +13,8 @@ use mlx_rs::{
     nn,
     ops::ones,
     optimizers::{
-        AdaDelta, AdaGrad, Adafactor, Adam, AdamW, Adamax, Lion, Optimizer, RmsProp, Sgd,
-        SgdBuilder,
+        AdaDelta, AdaGrad, Adafactor, Adam, AdamW, Adamax, Lion, Optimizer, OptimizerState,
+        RmsProp, Sgd, SgdBuilder,
     },
     random::{key, uniform},
     transforms::{compile::compile_with_state, eval_params},
@@ -232,4 +232,56 @@ fn compiled_module_and_optimizer_report_errors() {
 
     assert!(step(&mut state, &x_err).is_err());
     assert!(compiled(&mut state, &x_err).is_err());
+}
+
+/// Train two steps, save the optimizer state, load it into a fresh optimizer, and check every key
+/// and value survives. Saving goes through the same keyed projection as compiled state.
+fn assert_optimizer_state_round_trips<O: Optimizer>(mut optimizer: O, mut fresh: O) {
+    let mut model = LinearFunctionModel::from_seed(4, &[4]);
+    let x = Array::from_slice(&[0.5f32, -1.0, 2.0, 1.5], &[4]);
+    for _ in 0..2 {
+        let mut loss_and_grad = nn::value_and_grad(loss);
+        let (_, grad) = loss_and_grad(&mut model, &x).unwrap();
+        optimizer.update(&mut model, grad).unwrap();
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.safetensors");
+    optimizer.state_mut().save_safetensors(&path).unwrap();
+    fresh.state_mut().load_safetensors(&path).unwrap();
+
+    let owned = |state: &mut O::State| -> Vec<(String, Array)> {
+        let entries = state.flatten().unwrap();
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value.clone()))
+            .collect()
+    };
+    let saved = owned(optimizer.state_mut());
+    let loaded = owned(fresh.state_mut());
+    assert!(!saved.is_empty());
+    let keys = |entries: &[(String, Array)]| -> Vec<String> {
+        entries.iter().map(|(key, _)| key.clone()).collect()
+    };
+    assert_eq!(keys(&loaded), keys(&saved));
+    for ((key, loaded), (_, saved)) in loaded.iter().zip(&saved) {
+        assert_close(loaded, saved, key);
+    }
+}
+
+#[test]
+fn optimizer_state_round_trips_adam() {
+    assert_optimizer_state_round_trips(Adam::new(0.1_f32), Adam::new(0.1_f32));
+}
+
+#[test]
+fn optimizer_state_round_trips_sgd_with_momentum() {
+    let sgd = || SgdBuilder::new(0.01_f32).momentum(0.9_f32).build().unwrap();
+    assert_optimizer_state_round_trips(sgd(), sgd());
+}
+
+#[test]
+fn optimizer_state_round_trips_adafactor() {
+    // Adafactor's state has optional slots, which must keep their keys through a round trip.
+    assert_optimizer_state_round_trips(Adafactor::new().unwrap(), Adafactor::new().unwrap());
 }

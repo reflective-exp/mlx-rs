@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::ops::sqrt;
-use crate::utils::{Updatable, get_mut_or_insert_with};
+use crate::utils::get_mut_or_insert_with;
 use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
 
@@ -111,30 +111,6 @@ impl Optimizer for AdaDelta {
         *u = u_new;
 
         Ok(())
-    }
-}
-
-impl Updatable for AdaDelta {
-    fn updatable_states_len(&self) -> usize {
-        self.state.len() * 2
-    }
-
-    fn updatable_states(&self) -> impl IntoIterator<Item = &Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .flat_map(|(_, (v, u))| [v, u])
-    }
-
-    fn updatable_states_mut(&mut self) -> impl IntoIterator<Item = &mut Array> {
-        use itertools::Itertools;
-
-        self.state
-            .iter_mut()
-            .sorted_by(|a, b| a.0.cmp(b.0))
-            .flat_map(|(_, (v, u))| [v, u])
     }
 }
 

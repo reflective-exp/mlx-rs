@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
-use crate::error::{IoError, UnflattenError};
+use crate::error::{IoError, StateProjectionError, UnflattenError};
 use crate::module::{FlattenedModuleParam, ModuleParameters};
-use crate::utils::Updatable;
+use crate::utils::{StateProjection, Updatable};
 use crate::{Array, array};
 
 mod adadelta;
@@ -33,23 +33,29 @@ pub use lion::*;
 pub use rmsprop::*;
 pub use sgd::*;
 
-// Unfortunate workaround to implement Updatable for mutable references of
-// optimizers This is needed because of the orphan rule and lack of negative
-// trait bound, otherwise we would need to implement Updatable for every
-// `Module`
+// Implements `Updatable` for an optimizer and for mutable references to it, both through the
+// optimizer state's projection, so compiled state and saved state share one declaration. The
+// blanket impl for `ModuleParameters` rules out a blanket impl over `Optimizer` (no negative
+// trait bounds), hence a macro per optimizer.
 macro_rules! impl_updatable_for_mut_optimizer {
     ($optimizer:ty) => {
-        impl Updatable for &'_ mut $optimizer {
-            fn updatable_states_len(&self) -> usize {
-                <$optimizer as Updatable>::updatable_states_len(&**self)
+        impl $crate::utils::Updatable for $optimizer {
+            fn state_projection(
+                &mut self,
+            ) -> Result<$crate::utils::StateProjection<'_>, $crate::error::StateProjectionError>
+            {
+                $crate::optimizers::OptimizerState::state_projection(
+                    $crate::optimizers::Optimizer::state_mut(self),
+                )
             }
+        }
 
-            fn updatable_states(&self) -> impl IntoIterator<Item = &Array> {
-                <$optimizer as Updatable>::updatable_states(&**self)
-            }
-
-            fn updatable_states_mut(&mut self) -> impl IntoIterator<Item = &mut Array> {
-                <$optimizer as Updatable>::updatable_states_mut(&mut **self)
+        impl $crate::utils::Updatable for &'_ mut $optimizer {
+            fn state_projection(
+                &mut self,
+            ) -> Result<$crate::utils::StateProjection<'_>, $crate::error::StateProjectionError>
+            {
+                <$optimizer as $crate::utils::Updatable>::state_projection(&mut **self)
             }
         }
     };
@@ -64,11 +70,21 @@ pub trait OptimizerState: Sized {
     /// Error type for unflatten.
     type UnflattenError: std::error::Error + Into<IoError>;
 
-    /// Flatten the optimizer state.
-    fn flatten(&self) -> impl Iterator<Item = (Rc<str>, &Array)>;
+    /// Declare every state array by key.
+    ///
+    /// Drives [`flatten`](Self::flatten), saving, and `compile_with_state`'s threaded state, so
+    /// they always agree. Its keys must be the ones [`unflatten`](Self::unflatten) reads back.
+    fn state_projection(&mut self) -> Result<StateProjection<'_>, StateProjectionError>;
 
-    /// Flatten the mutable optimizer state.
-    fn flatten_mut(&mut self) -> impl Iterator<Item = (Rc<str>, &mut Array)>;
+    /// The present state arrays as `(key, array)` pairs, in key order.
+    fn flatten(&mut self) -> Result<Vec<(Rc<str>, &Array)>, StateProjectionError> {
+        Ok(self.state_projection()?.into_entries().collect())
+    }
+
+    /// The present state arrays as `(key, mutable array)` pairs, in key order.
+    fn flatten_mut(&mut self) -> Result<Vec<(Rc<str>, &mut Array)>, StateProjectionError> {
+        Ok(self.state_projection()?.into_entries_mut().collect())
+    }
 
     /// Unflatten an iterator of key-value pairs into the optimizer state.
     fn unflatten<I, K>(input: I) -> Result<Self, Self::UnflattenError>
@@ -77,8 +93,8 @@ pub trait OptimizerState: Sized {
         K: Ord + AsRef<str> + Into<Rc<str>>;
 
     /// Save the optimizer state to a safetensors file.
-    fn save_safetensors(&self, path: impl AsRef<Path>) -> Result<(), IoError> {
-        let state = self.flatten();
+    fn save_safetensors(&mut self, path: impl AsRef<Path>) -> Result<(), IoError> {
+        let state = self.flatten()?;
         Array::save_safetensors(state, None, path)
     }
 
@@ -96,12 +112,12 @@ pub trait OptimizerState: Sized {
 impl OptimizerState for State {
     type UnflattenError = std::convert::Infallible;
 
-    fn flatten(&self) -> impl Iterator<Item = (Rc<str>, &Array)> {
-        self.iter().map(|(k, v)| (k.clone(), v))
-    }
-
-    fn flatten_mut(&mut self) -> impl Iterator<Item = (Rc<str>, &mut Array)> {
-        self.iter_mut().map(|(k, v)| (k.clone(), v))
+    fn state_projection(&mut self) -> Result<StateProjection<'_>, StateProjectionError> {
+        let mut projection = StateProjection::new();
+        for (key, value) in self {
+            projection.required(key.clone(), value)?;
+        }
+        Ok(projection)
     }
 
     fn unflatten<I, K>(input: I) -> Result<Self, Self::UnflattenError>
@@ -117,22 +133,13 @@ impl OptimizerState for State {
 impl OptimizerState for State<(Array, Array)> {
     type UnflattenError = UnflattenError;
 
-    fn flatten(&self) -> impl Iterator<Item = (Rc<str>, &Array)> {
-        self.iter().flat_map(|(k, (first, second))| {
-            let first_k: Rc<str> = Rc::from(format!("{k}.0"));
-            let second_k: Rc<str> = Rc::from(format!("{k}.1"));
-
-            [(first_k, first), (second_k, second)]
-        })
-    }
-
-    fn flatten_mut(&mut self) -> impl Iterator<Item = (Rc<str>, &mut Array)> {
-        self.iter_mut().flat_map(|(k, (first, second))| {
-            let first_k: Rc<str> = Rc::from(format!("{k}.0"));
-            let second_k: Rc<str> = Rc::from(format!("{k}.1"));
-
-            [(first_k, first), (second_k, second)]
-        })
+    fn state_projection(&mut self) -> Result<StateProjection<'_>, StateProjectionError> {
+        let mut projection = StateProjection::new();
+        for (key, (first, second)) in self {
+            projection.required(format!("{key}.0"), first)?;
+            projection.required(format!("{key}.1"), second)?;
+        }
+        Ok(projection)
     }
 
     fn unflatten<I, K>(input: I) -> Result<Self, Self::UnflattenError>

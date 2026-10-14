@@ -126,16 +126,13 @@ impl Default for RandomState {
 }
 
 impl crate::utils::Updatable for RandomState {
-    fn updatable_states_len(&self) -> usize {
-        1
-    }
-
-    fn updatable_states(&self) -> impl IntoIterator<Item = &Array> {
-        std::iter::once(&self.state)
-    }
-
-    fn updatable_states_mut(&mut self) -> impl IntoIterator<Item = &mut Array> {
-        std::iter::once(&mut self.state)
+    fn state_projection(
+        &mut self,
+    ) -> std::result::Result<crate::utils::StateProjection<'_>, crate::error::StateProjectionError>
+    {
+        let mut projection = crate::utils::StateProjection::new();
+        projection.required("key", &mut self.state)?;
+        Ok(projection)
     }
 }
 
@@ -1138,9 +1135,10 @@ mod tests {
     #[test]
     fn test_random_state_updatable() {
         use crate::utils::Updatable;
-        let state = RandomState::with_seed(0).unwrap();
-        assert_eq!(state.updatable_states_len(), 1);
-        assert_eq!(state.updatable_states().into_iter().count(), 1);
+        let mut state = RandomState::with_seed(0).unwrap();
+        let projection = state.state_projection().unwrap();
+        let keys: Vec<_> = projection.iter().map(|(key, _)| key.to_owned()).collect();
+        assert_eq!(keys, ["key"]);
     }
 
     #[test]
