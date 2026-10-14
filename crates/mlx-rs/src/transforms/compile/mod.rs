@@ -142,8 +142,7 @@
 //! See mlx-rs/mlx-tests/tests/test_compile_with_state.rs for more examples.
 //!
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Closure, Guarded, VectorArray};
 use crate::Array;
@@ -204,11 +203,36 @@ pub struct Compiled<F, G> {
     state: CompiledState<G>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct CompiledState<F> {
     f: F,
     shapeless: bool,
     id: usize,
+    /// Number of leading outputs of a traced `compile_with_state` function that are its results
+    /// rather than state. Only tracing records it, so it must persist for cached replays.
+    num_function_outputs: Option<usize>,
+}
+
+/// Source of compile-cache ids. MLX keys its cache by id alone, so each live compiled function
+/// needs a unique one; otherwise same-type closures with different captures share a traced graph.
+static NEXT_COMPILE_ID: AtomicUsize = AtomicUsize::new(1);
+
+impl<F> CompiledState<F> {
+    fn new(f: F, shapeless: bool) -> Self {
+        Self {
+            f,
+            shapeless,
+            id: NEXT_COMPILE_ID.fetch_add(1, Ordering::Relaxed),
+            num_function_outputs: None,
+        }
+    }
+}
+
+impl<F: Clone> Clone for CompiledState<F> {
+    /// A clone gets a fresh id, so dropping either copy does not erase the other's cache entry.
+    fn clone(&self) -> Self {
+        Self::new(self.f.clone(), self.shapeless)
+    }
 }
 
 impl<F> Drop for CompiledState<F> {
@@ -217,17 +241,6 @@ impl<F> Drop for CompiledState<F> {
         let id = self.id;
         with_compile_cache(|cache| unsafe { mlx_sys::mlx_detail_compile_erase(cache, id) });
     }
-}
-
-fn type_id_to_usize<T>(_val: &T) -> usize
-where
-    T: 'static,
-{
-    // hash type id to usize
-    let type_id = std::any::TypeId::of::<T>();
-    let mut hasher = DefaultHasher::new();
-    type_id.hash(&mut hasher);
-    hasher.finish() as usize
 }
 
 fn update_by_replace_with_ref_to_new_array(src: &mut Array, new_array: &Array) {

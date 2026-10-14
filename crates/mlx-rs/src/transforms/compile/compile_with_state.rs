@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use crate::Array;
 use crate::error::Exception;
-use crate::transforms::compile::{CompiledState, type_id_to_usize};
+use crate::transforms::compile::CompiledState;
 use crate::utils::Updatable;
 
 use super::{Closure, Compiled, Guarded, VectorArray, update_by_replace_with_ref_to_new_array};
@@ -24,14 +24,13 @@ pub fn compile_with_state<F, U, A, O, E>(
     shapeless: impl Into<Option<bool>>,
 ) -> impl for<'a> FnMut(&mut U, F::Args<'a>) -> Result<O, Exception>
 where
-    F: CompileWithState<U, A, O, E> + Copy + 'static,
+    F: CompileWithState<U, A, O, E> + 'static,
     U: Updatable,
 {
     let shapeless = shapeless.into().unwrap_or(false);
-    move |state, args| {
-        let mut compiled = f.compile(shapeless);
-        compiled.call_mut(state, args)
-    }
+    // Built once so every call reuses one cache entry, which is erased when the closure drops.
+    let mut compiled = f.compile(shapeless);
+    move |state, args| compiled.call_mut(state, args)
 }
 
 /// A trait for functions that can be compiled with state.
@@ -54,7 +53,10 @@ pub trait CompileWithState<U, A, O, E> {
     type Args<'a>;
 
     /// Compile the function.
-    fn compile<'args>(self, shapeless: bool) -> impl CallMutWithState<U, Self::Args<'args>, O, E>;
+    fn compile(
+        self,
+        shapeless: bool,
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, O, E>;
 }
 
 impl<F, U> CompileWithState<U, &[Array], Vec<Array>, ()> for F
@@ -64,16 +66,11 @@ where
 {
     type Args<'a> = &'a [Array];
 
-    fn compile<'args>(
+    fn compile(
         self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Vec<Array>, ()> {
-        let id = type_id_to_usize(&self);
-        let state = CompiledState {
-            f: self,
-            shapeless,
-            id,
-        };
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Vec<Array>, ()> {
+        let state = CompiledState::new(self, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -88,16 +85,15 @@ where
 {
     type Args<'a> = &'a Array;
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, ()> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, ()> {
         let f = move |state: &mut U, args: &[Array]| -> Vec<Array> {
             let result = (self)(state, &args[0]);
             vec![result]
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -112,16 +108,15 @@ where
 {
     type Args<'a> = (&'a Array, &'a Array);
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, ()> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, ()> {
         let f = move |state: &mut U, args: &[Array]| -> Vec<Array> {
             let result = (self)(state, (&args[0], &args[1]));
             vec![result]
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -136,16 +131,15 @@ where
 {
     type Args<'a> = (&'a Array, &'a Array, &'a Array);
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, ()> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, ()> {
         let f = move |state: &mut U, args: &[Array]| -> Vec<Array> {
             let result = (self)(state, (&args[0], &args[1], &args[2]));
             vec![result]
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -160,16 +154,11 @@ where
 {
     type Args<'a> = &'a [Array];
 
-    fn compile<'args>(
+    fn compile(
         self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Vec<Array>, Exception> {
-        let id = type_id_to_usize(&self);
-        let state = CompiledState {
-            f: self,
-            shapeless,
-            id,
-        };
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Vec<Array>, Exception> {
+        let state = CompiledState::new(self, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -184,16 +173,15 @@ where
 {
     type Args<'a> = &'a Array;
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, Exception> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, Exception> {
         let f = move |state: &mut U, args: &[Array]| -> Result<Vec<Array>, Exception> {
             let result = (self)(state, &args[0])?;
             Ok(vec![result])
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -208,16 +196,15 @@ where
 {
     type Args<'a> = (&'a Array, &'a Array);
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, Exception> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, Exception> {
         let f = move |state: &mut U, args: &[Array]| -> Result<Vec<Array>, Exception> {
             let result = (self)(state, (&args[0], &args[1]))?;
             Ok(vec![result])
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -232,16 +219,15 @@ where
 {
     type Args<'a> = (&'a Array, &'a Array, &'a Array);
 
-    fn compile<'args>(
+    fn compile(
         mut self,
         shapeless: bool,
-    ) -> impl CallMutWithState<U, Self::Args<'args>, Array, Exception> {
-        let id = type_id_to_usize(&self);
+    ) -> impl for<'args> CallMutWithState<U, Self::Args<'args>, Array, Exception> {
         let f = move |state: &mut U, args: &[Array]| -> Result<Vec<Array>, Exception> {
             let result = (self)(state, (&args[0], &args[1], &args[2]))?;
             Ok(vec![result])
         };
-        let state = CompiledState { f, shapeless, id };
+        let state = CompiledState::new(f, shapeless);
         Compiled {
             f_marker: PhantomData::<F>,
             state,
@@ -497,7 +483,7 @@ impl<F> CompiledState<F> {
         let f = &mut self.f;
 
         // Cell to capture the number of function outputs during tracing
-        let num_function_outputs = Rc::new(Cell::new(None));
+        let num_function_outputs = Rc::new(Cell::new(self.num_function_outputs));
         let num_fn_outputs_clone = Rc::clone(&num_function_outputs);
 
         let state_clone = Rc::clone(&state);
@@ -557,14 +543,16 @@ impl<F> CompiledState<F> {
         };
 
         let inner_closure = Closure::new(inner);
-        call_mut_with_state_inner(
+        let result = call_mut_with_state_inner(
             inner_closure,
             self.id,
             self.shapeless,
             state,
             args,
-            num_function_outputs,
-        )
+            Rc::clone(&num_function_outputs),
+        );
+        self.num_function_outputs = num_function_outputs.get();
+        result
     }
 
     fn fallible_call_mut_with_state<U>(
@@ -581,7 +569,7 @@ impl<F> CompiledState<F> {
         let f = &mut self.f;
 
         // Cell to capture the number of function outputs during tracing
-        let num_function_outputs = Rc::new(Cell::new(None));
+        let num_function_outputs = Rc::new(Cell::new(self.num_function_outputs));
         let num_fn_outputs_clone = Rc::clone(&num_function_outputs);
 
         let state_clone = Rc::clone(&state);
@@ -641,13 +629,75 @@ impl<F> CompiledState<F> {
         };
 
         let inner_closure = Closure::new_fallible(inner);
-        call_mut_with_state_inner(
+        let result = call_mut_with_state_inner(
             inner_closure,
             self.id,
             self.shapeless,
             state,
             args,
-            num_function_outputs,
-        )
+            Rc::clone(&num_function_outputs),
+        );
+        self.num_function_outputs = num_function_outputs.get();
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Array, array,
+        random::{RandomState, uniform},
+    };
+
+    use super::compile_with_state;
+
+    /// Returned closures share one type and differ only in captures.
+    fn offset_by(k: f32) -> impl Fn(&mut RandomState, &Array) -> Array + Copy + 'static {
+        move |_state: &mut RandomState, x: &Array| x + k
+    }
+
+    #[test]
+    fn same_type_closures_with_different_captures_compile_separately() {
+        let x = array!([1.0f32, 2.0]);
+        let mut state = RandomState::with_seed(0).unwrap();
+
+        let mut plus_one = compile_with_state(offset_by(1.0), None);
+        let mut plus_two = compile_with_state(offset_by(2.0), None);
+        assert_eq!(
+            plus_one(&mut state, &x).unwrap().as_slice::<f32>(),
+            &[2.0, 3.0]
+        );
+        assert_eq!(
+            plus_two(&mut state, &x).unwrap().as_slice::<f32>(),
+            &[3.0, 4.0]
+        );
+        assert_eq!(
+            plus_one(&mut state, &x).unwrap().as_slice::<f32>(),
+            &[2.0, 3.0]
+        );
+    }
+
+    #[test]
+    fn state_advances_across_calls_to_one_compiled_function() {
+        let draw = |state: &mut RandomState, _x: &Array| -> Array {
+            let key = state.next_key().unwrap();
+            uniform::<_, f32>(0.0, 1.0, &[4][..], &key).unwrap()
+        };
+        let x = array!(0.0f32);
+
+        let mut eager_state = RandomState::with_seed(7).unwrap();
+        let eager_first = draw(&mut eager_state, &x);
+        let eager_second = draw(&mut eager_state, &x);
+
+        let mut state = RandomState::with_seed(7).unwrap();
+        let mut compiled = compile_with_state(draw, None);
+        let first = compiled(&mut state, &x).unwrap();
+        let second = compiled(&mut state, &x).unwrap();
+
+        // The compiled graph can differ from eager evaluation in the last ulp.
+        let close = |a: &Array, b: &Array| a.all_close(b, None, None, None).unwrap().item::<bool>();
+        assert!(close(&first, &eager_first));
+        assert!(close(&second, &eager_second));
+        assert!(!close(&first, &second));
     }
 }

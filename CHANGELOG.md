@@ -12,6 +12,12 @@ end; `as_slice` panics. Call `Array::contiguous()` first. Converting such an arr
 safetensors `TensorView` returns `ConversionError::ArraySlice`, and `deep_clone` now evaluates
 the array and copies its logical elements.
 
+Each compiled function gets its own cache id instead of one derived from the closure type, so
+same-type closures with different captures no longer share a traced graph. `compile` and
+`compile_with_state` build the compiled function once instead of per call, so the trace is reused
+rather than erased and retraced, and no longer require `F: Copy`. `Compile::compile` and
+`CompileWithState::compile` return a value usable for any argument lifetime.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,
