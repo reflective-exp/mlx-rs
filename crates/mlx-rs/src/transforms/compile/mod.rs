@@ -142,6 +142,7 @@
 //! See mlx-rs/mlx-tests/tests/test_compile_with_state.rs for more examples.
 //!
 
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Closure, Guarded, VectorArray};
@@ -210,6 +211,10 @@ struct CompiledState<F> {
     /// For `compile_with_state`: what the last trace recorded about the state. Only tracing
     /// records it, so it must persist for cached replays.
     state_trace: Option<compile_with_state::StateTrace>,
+    /// Makes compiled functions `!Send` and `!Sync`. MLX keeps one compile cache per thread, so on
+    /// another thread a compiled function would trace into that thread's cache, and dropping it
+    /// there would erase from the wrong cache and leak its graph in the original.
+    _thread_bound: PhantomData<*const ()>,
 }
 
 /// Source of compile-cache ids. MLX keys its cache by id alone, so each live compiled function
@@ -223,6 +228,7 @@ impl<F> CompiledState<F> {
             shapeless,
             id: NEXT_COMPILE_ID.fetch_add(1, Ordering::Relaxed),
             state_trace: None,
+            _thread_bound: PhantomData,
         }
     }
 }

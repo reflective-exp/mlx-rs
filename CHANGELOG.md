@@ -14,6 +14,10 @@ Added:
   or a device's default stream. `with_new_default_stream` is deprecated in favour of
   `with_stream`.
 
+Compiled functions (from `compile`, `compile_with_state`, or `Compile::compile`) are now
+`!Send` and `!Sync`. MLX keeps one compile cache per thread, so one used or dropped on another
+thread traced into, or erased from, the wrong cache.
+
 Renamed: the scoped default stream is per thread, not per async task, so `task_local_*` is now
 `thread_local_*` (`thread_local_default_stream`, `Stream::thread_local_or_{default,cpu,gpu}`).
 The old names remain as deprecated aliases.

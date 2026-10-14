@@ -377,6 +377,7 @@ impl<F> CompiledState<F> {
             shapeless,
             id,
             state_trace,
+            ..
         } = self;
         let mut step = |state: &mut U, args: &[Array]| Ok(f(state, args));
         call_with_state(*id, *shapeless, state_trace, &mut step, state, args)
@@ -396,6 +397,7 @@ impl<F> CompiledState<F> {
             shapeless,
             id,
             state_trace,
+            ..
         } = self;
         call_with_state(*id, *shapeless, state_trace, f, state, args)
     }
