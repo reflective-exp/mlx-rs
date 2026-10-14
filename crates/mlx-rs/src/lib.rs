@@ -234,6 +234,19 @@
 //!
 //! In the above, both the CPU and the GPU will perform the same add operation.
 //!
+//! To pick the device for a whole block of operations, wrap them in [`with_device`] or
+//! [`with_stream`]. Operations inside the closure without an explicit stream run on it; the scope
+//! is per thread and restored afterwards, even on panic:
+//!
+//! ```rust
+//! use mlx_rs::{Device, ops::add, with_device};
+//!
+//! let a = mlx_rs::Array::from_slice(&[1.0f32, 2.0], &[2]);
+//! let b = mlx_rs::Array::from_slice(&[3.0f32, 4.0], &[2]);
+//! let sum = with_device(&Device::cpu(), || add(&a, &b)).unwrap();
+//! assert_eq!(sum.as_slice::<f32>(), &[4.0, 6.0]);
+//! ```
+//!
 //! TODO: The remaining python documentations states that the stream can be used
 //! to parallelize operations without worrying about racing conditions. We
 //! should check if this is true given that we've already observed data racing

@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 static GLOBAL_STATE: OnceLock<Mutex<RandomState>> = OnceLock::new();
 
 thread_local! {
-    static TASK_LOCAL_STATE: RefCell<Option<RandomState>> = const { RefCell::new(None) };
+    static SCOPED_STATE: RefCell<Option<RandomState>> = const { RefCell::new(None) };
 }
 
 /// Random state for reproducible random number generation.
@@ -140,10 +140,10 @@ fn global_state() -> &'static Mutex<RandomState> {
     GLOBAL_STATE.get_or_init(|| Mutex::new(RandomState::new().unwrap()))
 }
 
-/// Returns a key from the task-local state if it exists, otherwise
-/// returns `None`
-fn resolve_task_local_key() -> Option<Result<Array>> {
-    TASK_LOCAL_STATE.with_borrow_mut(|state| state.as_mut().map(|s| s.next()))
+/// Returns a key from the state set by an enclosing [`with_random_state`] on this thread, or
+/// `None` outside one.
+fn resolve_scoped_key() -> Option<Result<Array>> {
+    SCOPED_STATE.with_borrow_mut(|state| state.as_mut().map(|s| s.next()))
 }
 
 fn resolve_global_key() -> Result<Array> {
@@ -165,7 +165,7 @@ fn optional_array(a: Option<&Array>) -> mlx_sys::mlx_array {
 fn resolve<'a>(key: impl Into<Option<&'a Array>>) -> Result<Cow<'a, Array>> {
     key.into().map_or_else(
         || {
-            resolve_task_local_key()
+            resolve_scoped_key()
                 .unwrap_or_else(resolve_global_key)
                 .map(Cow::Owned)
         },
@@ -175,12 +175,14 @@ fn resolve<'a>(key: impl Into<Option<&'a Array>>) -> Result<Cow<'a, Array>> {
 
 /// Use the given random state for the scope of `f`
 ///
-/// Scopes nest, and the previous state is restored even if `f` panics.
+/// Like [`with_stream`](crate::with_stream), the scope is per thread and synchronous: it does not
+/// reach other threads or follow an async task across `.await`. Scopes nest, and the previous
+/// state is restored even if `f` panics.
 pub fn with_random_state<F, T>(state: RandomState, f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    crate::utils::with_scoped_local(&TASK_LOCAL_STATE, state, f)
+    crate::utils::with_scoped_local(&SCOPED_STATE, state, f)
 }
 
 /// Seed the random number generator.
@@ -1189,7 +1191,7 @@ mod tests {
             assert!(panic.is_err());
 
             // The outer state is back in place, so the next key is its first one.
-            let next = resolve_task_local_key().unwrap().unwrap();
+            let next = resolve_scoped_key().unwrap().unwrap();
             assert!(
                 next.array_eq(expected.next_key().unwrap(), None)
                     .unwrap()
@@ -1197,6 +1199,6 @@ mod tests {
             );
         });
 
-        assert!(resolve_task_local_key().is_none());
+        assert!(resolve_scoped_key().is_none());
     }
 }

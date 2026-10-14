@@ -10,6 +10,13 @@ Added:
 - `ops::search_sorted` with `SearchSide`.
 - `ops::indexing::TryIndexUpdateOp` and `UpdateMode::{Replace, Add, Min, Max, Product}`:
   functional updates through the same indices as `index_mut`, returning a new array.
+- `with_stream(&stream, f)` and `with_device(&device, f)`: run a block of operations on a stream
+  or a device's default stream. `with_new_default_stream` is deprecated in favour of
+  `with_stream`.
+
+Renamed: the scoped default stream is per thread, not per async task, so `task_local_*` is now
+`thread_local_*` (`thread_local_default_stream`, `Stream::thread_local_or_{default,cpu,gpu}`).
+The old names remain as deprecated aliases.
 
 Breaking: keyed state. `Updatable` is now one method, `state_projection`, which declares every
 mutable array under a key (`utils::StateProjection`, with required and optional slots) instead of

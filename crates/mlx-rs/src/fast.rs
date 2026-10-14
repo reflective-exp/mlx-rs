@@ -353,7 +353,7 @@ impl MetalKernel {
         inputs: impl IntoIterator<Item = impl AsRef<Array>>,
         config: &MetalKernelConfig,
     ) -> Result<Vec<Array>> {
-        self.apply_device(inputs, config, Stream::task_local_or_default())
+        self.apply_device(inputs, config, Stream::thread_local_or_default())
     }
 
     /// Runs the kernel on `stream`, returning one [`Array`] per output declared
