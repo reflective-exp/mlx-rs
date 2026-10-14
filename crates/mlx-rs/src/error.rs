@@ -234,30 +234,53 @@ impl From<Exception> for String {
     }
 }
 
-thread_local! {
-    static CLOSURE_ERROR: Cell<Option<Exception>> = const { Cell::new(None) };
-    static LAST_MLX_ERROR: Cell<*const c_char> = const { Cell::new(std::ptr::null()) };
-    pub(crate) static INIT_ERR_HANDLER: Once = const { Once::new() };
-}
+/// The calling thread's most recent MLX error message, `strdup`ed by the handler and freed when
+/// drained, overwritten, or left behind at thread exit.
+struct LastErrorStash(Cell<*const c_char>);
 
-#[unsafe(no_mangle)]
-extern "C" fn default_mlx_error_handler(msg: *const c_char, _data: *mut std::ffi::c_void) {
-    unsafe {
-        LAST_MLX_ERROR.with(|last_error| {
-            last_error.set(strdup(msg));
-        });
+impl LastErrorStash {
+    fn replace(&self, ptr: *const c_char) -> *const c_char {
+        self.0.replace(ptr)
     }
 }
 
-#[unsafe(no_mangle)]
-extern "C" fn noop_mlx_error_handler_data_deleter(_data: *mut std::ffi::c_void) {}
+impl Drop for LastErrorStash {
+    fn drop(&mut self) {
+        free_message(self.0.replace(std::ptr::null()));
+    }
+}
 
+fn free_message(ptr: *const c_char) {
+    if !ptr.is_null() {
+        unsafe { libc::free(ptr as *mut libc::c_void) };
+    }
+}
+
+thread_local! {
+    static CLOSURE_ERROR: Cell<Option<Exception>> = const { Cell::new(None) };
+    static LAST_MLX_ERROR: LastErrorStash = const { LastErrorStash(Cell::new(std::ptr::null())) };
+}
+
+/// mlx-c keeps one error handler for the whole process in unsynchronized globals, so it is
+/// registered once rather than per thread.
+pub(crate) static INIT_ERR_HANDLER: Once = Once::new();
+
+#[unsafe(no_mangle)]
+extern "C" fn default_mlx_error_handler(msg: *const c_char, _data: *mut std::ffi::c_void) {
+    // MLX can report several errors before a caller drains one; keep the newest.
+    let message = unsafe { strdup(msg) };
+    // `try_with` because MLX may report an error while this thread's locals are being destroyed.
+    let stashed = LAST_MLX_ERROR.try_with(|last_error| free_message(last_error.replace(message)));
+    if stashed.is_err() {
+        free_message(message);
+    }
+}
+
+/// Delivers each error through the calling thread's [`LAST_MLX_ERROR`], so the handler needs no
+/// data pointer.
 pub(crate) fn setup_mlx_error_handler() {
-    let handler = default_mlx_error_handler;
-    let data_ptr = LAST_MLX_ERROR.with(|last_error| last_error.as_ptr() as *mut std::ffi::c_void);
-    let dtor = noop_mlx_error_handler_data_deleter;
     unsafe {
-        mlx_sys::mlx_set_error_handler(Some(handler), data_ptr, Some(dtor));
+        mlx_sys::mlx_set_error_handler(Some(default_mlx_error_handler), std::ptr::null_mut(), None);
     }
 }
 
@@ -280,7 +303,7 @@ pub(crate) fn get_and_clear_closure_error() -> Option<Exception> {
 /// Without this, [`last_mlx_error_or`] would report a stale, unrelated message instead of its
 /// fallback.
 pub(crate) fn ensure_error_handler() {
-    INIT_ERR_HANDLER.with(|init| init.call_once(setup_mlx_error_handler));
+    INIT_ERR_HANDLER.call_once(setup_mlx_error_handler);
     let _ = get_and_clear_last_mlx_error();
 }
 
@@ -310,9 +333,7 @@ pub(crate) fn get_and_clear_last_mlx_error() -> Option<RawException> {
                 .to_string_lossy()
                 .into_owned()
         };
-        unsafe {
-            libc::free(last_err_ptr as *mut libc::c_void);
-        }
+        free_message(last_err_ptr);
 
         Some(RawException { what: last_err })
     })
@@ -431,7 +452,48 @@ impl From<InexactDtypeError> for Exception {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
+    use super::{default_mlx_error_handler, get_and_clear_last_mlx_error};
     use crate::array;
+
+    fn report(msg: &str) {
+        let msg = CString::new(msg).unwrap();
+        default_mlx_error_handler(msg.as_ptr(), std::ptr::null_mut());
+    }
+
+    #[test]
+    fn undrained_error_is_replaced_by_the_newest() {
+        let _ = get_and_clear_last_mlx_error();
+        report("first");
+        report("second");
+
+        assert_eq!(get_and_clear_last_mlx_error().unwrap().what, "second");
+        assert!(get_and_clear_last_mlx_error().is_none());
+    }
+
+    #[test]
+    fn errors_are_reported_on_every_thread() {
+        let messages: Vec<String> = (0..4)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    let a = array!([1.0, 2.0, 3.0]);
+                    let b = array!([4.0, 5.0]);
+                    let error = a.add(&b).expect_err("Expected error");
+                    // Exit with an undrained message, which the thread-local stash must free.
+                    report("left behind");
+                    error.what().to_string()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        for message in messages {
+            assert!(message.contains("Shapes (3) and (2) cannot be broadcast."));
+        }
+    }
 
     #[test]
     fn test_exception() {

@@ -21,6 +21,10 @@ rather than erased and retraced, and no longer require `F: Copy`. `Compile::comp
 Adafactor's `step` is now part of its updatable state, so `compile_with_state` carries it
 between steps instead of freezing it and leaving compiled training on the wrong schedule.
 
+The MLX error handler no longer leaks error messages that are overwritten before being read or
+left unread at thread exit. It is registered once per process instead of per thread, since
+mlx-c stores it in unsynchronized globals.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,

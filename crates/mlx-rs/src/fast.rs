@@ -458,8 +458,7 @@ impl<'a> MetalKernelBuilder<'a> {
 
     /// Builds the [`MetalKernel`].
     pub fn build(self) -> Result<MetalKernel> {
-        crate::error::INIT_ERR_HANDLER
-            .with(|init| init.call_once(crate::error::setup_mlx_error_handler));
+        crate::error::INIT_ERR_HANDLER.call_once(crate::error::setup_mlx_error_handler);
 
         let name = cstring(self.name)?;
         let source = cstring(self.source)?;
