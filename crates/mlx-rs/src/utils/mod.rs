@@ -7,8 +7,10 @@ use crate::error::Exception;
 use crate::error::{set_closure_error, set_closure_panic};
 use crate::module::ModuleParameters;
 use crate::{Array, FromNested, complex64};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::thread::LocalKey;
 use std::{marker::PhantomData, rc::Rc};
 
 /// Success status code from the c binding
@@ -287,6 +289,30 @@ where
             Some(closure_dtor::<F>),
         )
     }
+}
+
+/// Set the thread-local `local` to `value` while `f` runs, then restore the previous value, even if
+/// `f` panics.
+pub(crate) fn with_scoped_local<T: 'static, R>(
+    local: &'static LocalKey<RefCell<Option<T>>>,
+    value: T,
+    f: impl FnOnce() -> R,
+) -> R {
+    struct Restore<T: 'static> {
+        local: &'static LocalKey<RefCell<Option<T>>>,
+        previous: Option<T>,
+    }
+
+    impl<T: 'static> Drop for Restore<T> {
+        fn drop(&mut self) {
+            let previous = self.previous.take();
+            self.local.with_borrow_mut(|slot| *slot = previous);
+        }
+    }
+
+    let previous = local.with_borrow_mut(|slot| slot.replace(value));
+    let _restore = Restore { local, previous };
+    f()
 }
 
 /// Function to create a new (+1 reference) mlx_vector_array from a vector of Array

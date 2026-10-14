@@ -177,19 +177,13 @@ fn resolve<'a>(key: impl Into<Option<&'a Array>>) -> Result<Cow<'a, Array>> {
 }
 
 /// Use the given random state for the scope of `f`
+///
+/// Scopes nest, and the previous state is restored even if `f` panics.
 pub fn with_random_state<F, T>(state: RandomState, f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    let prev_state = TASK_LOCAL_STATE.with_borrow_mut(|s| s.replace(state));
-
-    let result = f();
-
-    TASK_LOCAL_STATE.with_borrow_mut(|s| {
-        *s = prev_state;
-    });
-
-    result
+    crate::utils::with_scoped_local(&TASK_LOCAL_STATE, state, f)
 }
 
 /// Seed the random number generator.
@@ -1182,5 +1176,29 @@ mod tests {
                 "Results should be equal for the same seed"
             );
         }
+    }
+
+    #[test]
+    fn random_state_scope_is_restored_after_panic() {
+        let outer = RandomState::with_seed(1).unwrap();
+        let mut expected = outer.clone();
+        with_random_state(outer, || {
+            let panic = std::panic::catch_unwind(|| {
+                with_random_state(RandomState::with_seed(2).unwrap(), || {
+                    panic!("random scope panic")
+                })
+            });
+            assert!(panic.is_err());
+
+            // The outer state is back in place, so the next key is its first one.
+            let next = resolve_task_local_key().unwrap().unwrap();
+            assert!(
+                next.array_eq(expected.next_key().unwrap(), None)
+                    .unwrap()
+                    .item::<bool>()
+            );
+        });
+
+        assert!(resolve_task_local_key().is_none());
     }
 }

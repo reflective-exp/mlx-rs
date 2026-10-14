@@ -32,19 +32,13 @@ pub fn task_local_default_stream() -> Option<Stream> {
 }
 
 /// Use a given default stream for the duration of the closure `f`.
+///
+/// Scopes nest, and the previous stream is restored even if `f` panics.
 pub fn with_new_default_stream<F, T>(default_stream: Stream, f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    let prev_stream = TASK_LOCAL_DEFAULT_STREAM.with_borrow_mut(|s| s.replace(default_stream));
-
-    let result = f();
-
-    TASK_LOCAL_DEFAULT_STREAM.with_borrow_mut(|s| {
-        *s = prev_stream;
-    });
-
-    result
+    crate::utils::with_scoped_local(&TASK_LOCAL_DEFAULT_STREAM, default_stream, f)
 }
 
 /// Parameter type for all MLX operations.
@@ -322,6 +316,24 @@ mod tests {
             assert_eq!(task_local_stream_0, task_local_stream_1);
             assert_ne!(task_local_stream_0, cpu_stream);
         });
+    }
+
+    #[test]
+    fn scoped_default_streams_nest_and_restore_after_panic() {
+        let outer = Stream::cpu();
+        with_new_default_stream(outer.clone(), || {
+            let panic = std::panic::catch_unwind(|| {
+                with_new_default_stream(Stream::gpu(), || {
+                    assert_eq!(task_local_default_stream(), Some(Stream::gpu()));
+                    panic!("stream scope panic");
+                })
+            });
+
+            assert!(panic.is_err());
+            assert_eq!(task_local_default_stream(), Some(outer.clone()));
+        });
+
+        assert!(task_local_default_stream().is_none());
     }
 
     #[test]

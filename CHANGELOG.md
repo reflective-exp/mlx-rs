@@ -33,6 +33,10 @@ A panic inside a closure passed to a transform (`grad`, `value_and_grad`, `jvp`,
 `compile`, `compile_with_state`) propagates to the caller with its original payload instead of
 aborting the process at the FFI boundary.
 
+`with_new_default_stream` and `with_random_state` restore the previous stream or random state
+when their closure panics, instead of leaving the scoped value in place for the rest of the
+thread.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,
