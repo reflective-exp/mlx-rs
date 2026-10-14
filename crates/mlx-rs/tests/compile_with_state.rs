@@ -157,7 +157,6 @@ fn compiled_training_matches_eager_lion() {
 }
 
 #[test]
-#[ignore = "Adafactor omits `step` from `updatable_states`, so compiled training freezes it"]
 fn compiled_training_matches_eager_adafactor() {
     assert_compiled_training_matches_eager(|| Adafactor::new().unwrap());
 }

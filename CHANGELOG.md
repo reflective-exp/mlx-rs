@@ -18,6 +18,9 @@ same-type closures with different captures no longer share a traced graph. `comp
 rather than erased and retraced, and no longer require `F: Copy`. `Compile::compile` and
 `CompileWithState::compile` return a value usable for any argument lifetime.
 
+Adafactor's `step` is now part of its updatable state, so `compile_with_state` carries it
+between steps instead of freezing it and leaving compiled training on the wrong schedule.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,

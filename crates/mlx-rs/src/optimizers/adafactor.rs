@@ -438,16 +438,20 @@ impl Updatable for Adafactor {
             .iter()
             .sorted_by(|a, b| a.0.cmp(b.0))
             .flat_map(|(_, v)| {
-                // [expAvgSqRow, expAvgSqCol, expAvgSq, expAvg]
-                [
-                    &v.exp_avg_sq_row,
-                    &v.exp_avg_sq_col,
-                    &v.exp_avg_sq,
-                    &v.exp_avg,
-                ]
-                .into_iter()
-                .filter_map(|v| v.as_ref())
-                .collect::<Vec<_>>()
+                // [step, expAvgSqRow, expAvgSqCol, expAvgSq, expAvg]; `step` drives the
+                // relative step size and decay, so compiled updates must carry it.
+                std::iter::once(&v.step)
+                    .chain(
+                        [
+                            &v.exp_avg_sq_row,
+                            &v.exp_avg_sq_col,
+                            &v.exp_avg_sq,
+                            &v.exp_avg,
+                        ]
+                        .into_iter()
+                        .filter_map(|v| v.as_ref()),
+                    )
+                    .collect::<Vec<_>>()
             })
     }
 
@@ -458,16 +462,19 @@ impl Updatable for Adafactor {
             .iter_mut()
             .sorted_by(|a, b| a.0.cmp(b.0))
             .flat_map(|(_, v)| {
-                // [expAvgSqRow, expAvgSqCol, expAvgSq, expAvg]
-                [
-                    &mut v.exp_avg_sq_row,
-                    &mut v.exp_avg_sq_col,
-                    &mut v.exp_avg_sq,
-                    &mut v.exp_avg,
-                ]
-                .into_iter()
-                .filter_map(|v| v.as_mut())
-                .collect::<Vec<_>>()
+                // Same order as `updatable_states`.
+                std::iter::once(&mut v.step)
+                    .chain(
+                        [
+                            &mut v.exp_avg_sq_row,
+                            &mut v.exp_avg_sq_col,
+                            &mut v.exp_avg_sq,
+                            &mut v.exp_avg,
+                        ]
+                        .into_iter()
+                        .filter_map(|v| v.as_mut()),
+                    )
+                    .collect::<Vec<_>>()
             })
     }
 }
