@@ -1,4 +1,4 @@
-use crate::error::IoError;
+use crate::error::{IoError, ensure_error_handler, last_mlx_error_or};
 use crate::utils::SUCCESS;
 use crate::utils::guard::Guarded;
 use crate::utils::io::SafeTensors;
@@ -112,77 +112,68 @@ impl Array {
         S: AsRef<str>,
         V: AsRef<Array>,
     {
-        crate::error::INIT_ERR_HANDLER.call_once(crate::error::setup_mlx_error_handler);
+        ensure_error_handler();
 
         let path = path.as_ref();
 
         check_file_extension(path, "safetensors")?;
 
-        let arrays = unsafe {
-            let data = mlx_sys::mlx_map_string_to_array_new();
-            for (key, array) in arrays.into_iter() {
-                let key = CString::new(key.as_ref())?;
-
-                let status = mlx_sys::mlx_map_string_to_array_insert(
-                    data,
+        // The guards free both maps on every return, including `?` exits.
+        let c_arrays = ArrayMap(unsafe { mlx_sys::mlx_map_string_to_array_new() });
+        for (key, array) in arrays.into_iter() {
+            let key = CString::new(key.as_ref())?;
+            let status = unsafe {
+                mlx_sys::mlx_map_string_to_array_insert(
+                    c_arrays.0,
                     key.as_ptr(),
                     array.as_ref().as_ptr(),
-                );
-
-                if status != SUCCESS {
-                    mlx_sys::mlx_map_string_to_array_free(data);
-                    return Err(crate::error::get_and_clear_last_mlx_error()
-                        .expect("A non-success status was returned, but no error was set.")
-                        .into());
-                }
+                )
+            };
+            if status != SUCCESS {
+                return Err(last_mlx_error_or("Failed to collect safetensors arrays").into());
             }
-            data
-        };
+        }
 
         let default_metadata = HashMap::new();
         let metadata_ref = metadata.into().unwrap_or(&default_metadata);
 
-        let metadata = unsafe {
-            let data = mlx_sys::mlx_map_string_to_string_new();
-            for (key, value) in metadata_ref.iter() {
-                let key = CString::new(key.as_str())?;
-                let value = CString::new(value.as_str())?;
-
-                let status =
-                    mlx_sys::mlx_map_string_to_string_insert(data, key.as_ptr(), value.as_ptr());
-
-                if status != SUCCESS {
-                    mlx_sys::mlx_map_string_to_string_free(data);
-                    return Err(crate::error::get_and_clear_last_mlx_error()
-                        .expect("A non-success status was returned, but no error was set.")
-                        .into());
-                }
+        let c_metadata = StringMap(unsafe { mlx_sys::mlx_map_string_to_string_new() });
+        for (key, value) in metadata_ref.iter() {
+            let key = CString::new(key.as_str())?;
+            let value = CString::new(value.as_str())?;
+            let status = unsafe {
+                mlx_sys::mlx_map_string_to_string_insert(c_metadata.0, key.as_ptr(), value.as_ptr())
+            };
+            if status != SUCCESS {
+                return Err(last_mlx_error_or("Failed to collect safetensors metadata").into());
             }
-            data
-        };
+        }
 
         let c_path = CString::new(path.to_str().ok_or(IoError::InvalidUtf8)?)?;
 
-        unsafe {
-            let status = mlx_sys::mlx_save_safetensors(c_path.as_ptr(), arrays, metadata);
-
-            let last_error = match status {
-                SUCCESS => None,
-                _ => Some(
-                    crate::error::get_and_clear_last_mlx_error()
-                        .expect("A non-success status was returned, but no error was set."),
-                ),
-            };
-
-            mlx_sys::mlx_map_string_to_array_free(arrays);
-            mlx_sys::mlx_map_string_to_string_free(metadata);
-
-            if let Some(error) = last_error {
-                return Err(error.into());
-            }
-        };
+        let status =
+            unsafe { mlx_sys::mlx_save_safetensors(c_path.as_ptr(), c_arrays.0, c_metadata.0) };
+        if status != SUCCESS {
+            return Err(last_mlx_error_or("Failed to save safetensors").into());
+        }
 
         Ok(())
+    }
+}
+
+struct ArrayMap(mlx_sys::mlx_map_string_to_array);
+
+impl Drop for ArrayMap {
+    fn drop(&mut self) {
+        unsafe { mlx_sys::mlx_map_string_to_array_free(self.0) };
+    }
+}
+
+struct StringMap(mlx_sys::mlx_map_string_to_string);
+
+impl Drop for StringMap {
+    fn drop(&mut self) {
+        unsafe { mlx_sys::mlx_map_string_to_string_free(self.0) };
     }
 }
 
@@ -240,6 +231,17 @@ mod tests {
         assert_eq!(loaded_metadata, metadata);
         assert_eq!(loaded_arrays.len(), 1);
         assert_eq!(loaded_arrays["foo"].as_slice::<i32>(), &[1, 1]);
+    }
+
+    #[test]
+    fn test_save_arrays_to_missing_directory_is_an_error() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let path = tmp_dir.path().join("missing").join("test.safetensors");
+
+        let mut arrays = std::collections::HashMap::new();
+        arrays.insert("foo".to_string(), Array::ones::<i32>(&[1, 2]).unwrap());
+
+        assert!(Array::save_safetensors(&arrays, None, &path).is_err());
     }
 
     #[test]

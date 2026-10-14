@@ -37,6 +37,10 @@ aborting the process at the FFI boundary.
 when their closure panics, instead of leaving the scoped value in place for the rest of the
 thread.
 
+An MLX call that fails without recording a message returns an error naming its status instead
+of panicking, and failures no longer report a stale message left by an earlier call.
+`save_safetensors` no longer leaks its array and metadata maps on error.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,

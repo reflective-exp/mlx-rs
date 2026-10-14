@@ -26,7 +26,8 @@ pub(crate) trait Guarded: Sized {
     where
         F: FnOnce(<Self::Guard as Guard<Self>>::MutRawPtr) -> Status,
     {
-        crate::error::INIT_ERR_HANDLER.call_once(crate::error::setup_mlx_error_handler);
+        // Also clears any stale message, so a failure here cannot report it.
+        crate::error::ensure_error_handler();
 
         let mut guard = Self::Guard::default();
         let status = f(guard.as_mut_raw_ptr());
@@ -36,15 +37,10 @@ pub(crate) trait Guarded: Sized {
                 guard.set_init_success(true);
                 guard.try_into_guarded()
             }
-            _ => {
-                // Err(crate::error::get_and_clear_last_mlx_error()
-                // .expect("MLX operation failed but no error was set"))
-                let what = crate::error::get_and_clear_last_mlx_error()
-                    .expect("MLX operation failed but no error was set")
-                    .what;
-                let location = std::panic::Location::caller();
-                Err(Exception { what, location })
-            }
+            // Some mlx-c functions fail with a status code without calling `mlx_error`.
+            status => Err(crate::error::last_mlx_error_or(&format!(
+                "MLX operation failed with status {status}"
+            ))),
         }
     }
 }
@@ -656,5 +652,26 @@ impl Guard<complex64> for __BindgenComplex<f32> {
 
     fn try_into_guarded(self) -> Result<complex64, Exception> {
         Ok(complex64::new(self.re, self.im))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Guarded;
+    use crate::utils::FAILURE;
+
+    #[test]
+    fn failure_without_an_mlx_message_returns_an_error() {
+        let error = <() as Guarded>::try_from_op(|_| FAILURE).unwrap_err();
+        assert_eq!(error.what(), "MLX operation failed with status 1");
+    }
+
+    #[test]
+    fn failure_does_not_report_an_earlier_unread_message() {
+        crate::error::ensure_error_handler();
+        unsafe { mlx_sys::_mlx_error(c"test".as_ptr(), 0, c"stale message".as_ptr()) };
+
+        let error = <() as Guarded>::try_from_op(|_| 2).unwrap_err();
+        assert_eq!(error.what(), "MLX operation failed with status 2");
     }
 }
