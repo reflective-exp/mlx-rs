@@ -1,4 +1,5 @@
 use mlx_rs::error::Exception;
+use mlx_rs::random::normal;
 use mlx_rs::{Array, ops, transforms};
 use std::error::Error;
 
@@ -9,21 +10,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let learning_rate: f32 = 0.01;
 
     // True weight vector
-    // let w_star = mlx_rs::random::normal::<f32>(&[num_features], None, None, None)?;
-    let w_star = mlx_rs::normal!(shape = &[num_features])?;
+    let w_star = normal::<f32>(&[num_features], None, None, None)?;
 
     // Input examples (design matrix)
-    // let x = mlx_rs::random::normal::<f32>(&[num_examples, num_features], None, None, None)?;
-    let x = mlx_rs::normal!(shape = &[num_examples, num_features])?;
+    let x = normal::<f32>(&[num_examples, num_features], None, None, None)?;
 
     // Noisy labels
-    // let eps = mlx_rs::random::normal::<f32>(&[num_examples], None, None, None)? * 1e-2;
-    let eps = mlx_rs::normal!(shape = &[num_examples])? * 1e-2;
+    let eps = normal::<f32>(&[num_examples], None, None, None)? * 1e-2;
     let y = x.matmul(&w_star)? + eps;
 
     // Initialize random weights
-    // let w = mlx_rs::random::normal::<f32>(&[num_features], None, None, None)? * 1e-2;
-    let w = mlx_rs::normal!(shape = &[num_features])? * 1e-2;
+    let w = normal::<f32>(&[num_features], None, None, None)? * 1e-2;
 
     let loss_fn = |inputs: &[Array]| -> Result<Array, Exception> {
         let w = &inputs[0];

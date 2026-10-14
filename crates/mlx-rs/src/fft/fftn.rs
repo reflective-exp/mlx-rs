@@ -1,12 +1,12 @@
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::Stream;
 use crate::array::Array;
 use crate::error::Result;
-use crate::utils::{IntoOption, guard::Guarded};
+use crate::utils::guard::Guarded;
 
-use super::utils::{resolve_size_and_axis_unchecked, resolve_sizes_and_axes_unchecked};
-use super::{FftNorm, resolve_norm};
+use super::utils::{
+    resolve_lengths_and_axes, resolve_lengths_and_axes_2d, resolve_size_and_axis_unchecked,
+};
+use super::{FftNorm, FftnOptions, resolve_norm};
 
 /// One dimensional discrete Fourier Transform.
 ///
@@ -16,15 +16,13 @@ use super::{FftNorm, resolve_norm};
 /// - `n`: Size of the transformed axis. The corresponding axis in the input is truncated or padded
 ///   with zeros to match `n`. The default value is `a.shape[axis]`.
 /// - `axis`: Axis along which to perform the FFT. The default is -1.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn fft_device(
+pub fn fft(
     a: impl AsRef<Array>,
-    #[optional] n: impl Into<Option<i32>>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
+    n: impl Into<Option<i32>>,
+    axis: impl Into<Option<i32>>,
+    norm: impl Into<Option<FftNorm>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
     let norm = resolve_norm(norm.into());
@@ -38,28 +36,21 @@ pub fn fft_device(
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Size of the transformed axes. The corresponding axes in the input are truncated or padded
-/// with zeros to match `s`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `[-2, -1]`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn fft2_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The corresponding axes in the input are
+///   truncated or padded with zeros to match `lengths`, which default to the sizes of `a` along
+///   `axes`. [`Axes::All`](crate::Axes::All) (the default) selects the last two axes, `[-2, -1]`.
+pub fn fft2(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let axes = axes.into_option().unwrap_or(&[-2, -1]);
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), Some(axes));
+    let (s, axes) =
+        resolve_lengths_and_axes_2d(a.shape(), options.lengths.as_deref(), &options.axes)?;
 
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_fft2(
@@ -80,28 +71,18 @@ pub fn fft2_device<'a>(
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-/// padded with zeros to match the sizes in `s`. The default value is the sizes of `a` along `axes`
-/// if not specified.
-/// - `axes`: Axes along which to perform the FFT. The default is `None` in which case the FFT is
-/// over the last `len(s)` axes are or all axes if `s` is also `None`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn fftn_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The default transforms all axes at
+///   their input sizes.
+pub fn fftn(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), axes.into_option());
+    let (s, axes) = resolve_lengths_and_axes(a.shape(), options.lengths.as_deref(), &options.axes)?;
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_fftn(
@@ -123,17 +104,15 @@ pub fn fftn_device<'a>(
 ///
 /// - `a`: Input array.
 /// - `n`: Size of the transformed axis. The corresponding axis in the input is truncated or padded
-///  with zeros to match `n`. The default value is `a.shape[axis]` if not specified.
+///   with zeros to match `n`. The default value is `a.shape[axis]` if not specified.
 /// - `axis`: Axis along which to perform the FFT. The default is `-1` if not specified.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn ifft_device(
+pub fn ifft(
     a: impl AsRef<Array>,
-    #[optional] n: impl Into<Option<i32>>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
+    n: impl Into<Option<i32>>,
+    axis: impl Into<Option<i32>>,
+    norm: impl Into<Option<FftNorm>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
     let norm = resolve_norm(norm.into());
@@ -148,28 +127,21 @@ pub fn ifft_device(
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Size of the transformed axes. The corresponding axes in the input are truncated or padded
-/// with zeros to match `s`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `[-2, -1]`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn ifft2_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The corresponding axes in the input are
+///   truncated or padded with zeros to match `lengths`, which default to the sizes of `a` along
+///   `axes`. [`Axes::All`](crate::Axes::All) (the default) selects the last two axes, `[-2, -1]`.
+pub fn ifft2(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let axes = axes.into_option().unwrap_or(&[-2, -1]);
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), Some(axes));
+    let (s, axes) =
+        resolve_lengths_and_axes_2d(a.shape(), options.lengths.as_deref(), &options.axes)?;
 
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_ifft2(
@@ -190,28 +162,18 @@ pub fn ifft2_device<'a>(
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-/// padded with zeros to match the sizes in `s`. The default value is the sizes of `a` along `axes`
-/// if not specified.
-/// - `axes`: Axes along which to perform the FFT. The default is `None` in which case the FFT is
-/// over the last `len(s)` axes are or all axes if `s` is also `None`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn ifftn_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The default transforms all axes at
+///   their input sizes.
+pub fn ifftn(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), axes.into_option());
+    let (s, axes) = resolve_lengths_and_axes(a.shape(), options.lengths.as_deref(), &options.axes)?;
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_ifftn(
@@ -291,7 +253,7 @@ mod tests {
         ];
 
         let array = Array::from_slice(FFT2_DATA, FFT2_SHAPE);
-        let fft2 = fft2(&array, None, None, None).unwrap();
+        let fft2 = fft2(&array, FftnOptions::default()).unwrap();
 
         assert_eq!(fft2.dtype(), Dtype::Complex64);
         // A multi-axis FFT returns a strided (not row-major) view.
@@ -300,7 +262,7 @@ mod tests {
             FFT2_EXPECTED
         );
 
-        let ifft2 = ifft2(&fft2, None, None, None).unwrap();
+        let ifft2 = ifft2(&fft2, FftnOptions::default()).unwrap();
 
         assert_eq!(ifft2.dtype(), Dtype::Complex64);
         assert_eq!(
@@ -332,7 +294,7 @@ mod tests {
         ];
 
         let array = Array::from_slice(FFTN_DATA, FFTN_SHAPE);
-        let fftn = fftn(&array, None, None, None).unwrap();
+        let fftn = fftn(&array, FftnOptions::default()).unwrap();
 
         assert_eq!(fftn.dtype(), Dtype::Complex64);
         // A multi-axis FFT returns a strided (not row-major) view.
@@ -341,7 +303,15 @@ mod tests {
             FFTN_EXPECTED
         );
 
-        let ifftn = ifftn(&fftn, FFTN_SHAPE, &[0, 1, 2], None).unwrap();
+        let ifftn = ifftn(
+            &fftn,
+            FftnOptions {
+                lengths: Some(FFTN_SHAPE.to_vec()),
+                axes: [0, 1, 2].into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
         assert_eq!(ifftn.dtype(), Dtype::Complex64);
         assert_eq!(
@@ -355,5 +325,30 @@ mod tests {
         // test that previous array is not modified and valid
         let data: &[f32] = array.as_slice();
         assert_eq!(data, FFTN_DATA);
+    }
+
+    #[test]
+    fn test_fftn_rejects_mismatched_lengths_and_axes() {
+        let array = Array::ones::<f32>(&[2, 2, 2]).unwrap();
+
+        // An all-axis transform needs one length per input dimension.
+        let all_axes = FftnOptions {
+            lengths: Some(vec![2, 2]),
+            ..Default::default()
+        };
+        assert!(fftn(&array, all_axes).is_err());
+
+        let partial = FftnOptions {
+            lengths: Some(vec![2]),
+            axes: [0, 1].into(),
+            ..Default::default()
+        };
+        assert!(fftn(&array, partial).is_err());
+
+        let out_of_bounds = FftnOptions {
+            axes: 3.into(),
+            ..Default::default()
+        };
+        assert!(fftn(&array, out_of_bounds).is_err());
     }
 }

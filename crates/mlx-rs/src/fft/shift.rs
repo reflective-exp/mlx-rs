@@ -1,4 +1,3 @@
-use mlx_internal_macros::{default_device, generate_macro};
 use smallvec::SmallVec;
 
 use crate::Stream;
@@ -35,13 +34,8 @@ fn resolve_axes(a: &Array, axes: Option<&[i32]>) -> SmallVec<[i32; DEFAULT_STACK
 /// let shifted = fftshift(&a, None).unwrap();
 /// // shifted contains: [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0]
 /// ```
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn fftshift_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn fftshift<'a>(a: impl AsRef<Array>, axes: impl IntoOption<&'a [i32]>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let axes = resolve_axes(a, axes.into_option());
 
@@ -74,13 +68,8 @@ pub fn fftshift_device<'a>(
 /// let unshifted = ifftshift(&a, None).unwrap();
 /// // unshifted contains: [0.0, 1.0, 2.0, 3.0, 4.0, -4.0, -3.0, -2.0, -1.0]
 /// ```
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn ifftshift_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn ifftshift<'a>(a: impl AsRef<Array>, axes: impl IntoOption<&'a [i32]>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let axes = resolve_axes(a, axes.into_option());
 

@@ -3,14 +3,14 @@ use std::sync::Arc;
 use crate::error::Exception;
 use crate::module::{Module, Param};
 use crate::ops::indexing::{Ellipsis, IndexOp};
-use crate::ops::{addmm, matmul, sigmoid, split, stack_axis, tanh, tanh_device};
+use crate::ops::{addmm, matmul, sigmoid, split_equal, stack, tanh};
 use crate::random::uniform;
-use crate::{Array, Stream, array};
+use crate::{Array, array};
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::ModuleParameters;
 
-/// Type alias for the non-linearity function.
-pub type NonLinearity = dyn Fn(&Array, &Stream) -> Result<Array, Exception>;
+/// Type alias for the non-linearity function. It runs on the calling thread's scoped stream.
+pub type NonLinearity = dyn Fn(&Array) -> Result<Array, Exception>;
 
 /// An Elman recurrent layer.
 ///
@@ -80,7 +80,7 @@ fn build_rnn(builder: RnnBuilder) -> Result<Rnn, Exception> {
     let hidden_size = builder.hidden_size;
     let non_linearity = builder
         .non_linearity
-        .unwrap_or_else(|| Arc::new(|x, d| tanh_device(x, d)));
+        .unwrap_or_else(|| Arc::new(|x| tanh(x)));
 
     let scale = 1.0 / (input_size as f32).sqrt();
     let wxh = uniform::<_, f32>(-scale, scale, &[hidden_size, input_size], None)?;
@@ -137,11 +137,11 @@ impl Rnn {
                 None => x.index((Ellipsis, index, 0..)),
             };
 
-            let hidden = (self.non_linearity)(&hidden, &Stream::default())?;
+            let hidden = (self.non_linearity)(&hidden)?;
             all_hidden.push(hidden);
         }
 
-        stack_axis(&all_hidden[..], -2)
+        stack(&all_hidden[..], -2)
     }
 }
 
@@ -323,7 +323,7 @@ impl Gru {
 
             rz = sigmoid(&rz)?;
 
-            let parts = split(&rz, 2, -1)?;
+            let parts = split_equal(&rz, 2, -1)?;
             let r = &parts[0];
             let z = &parts[1];
 
@@ -345,7 +345,7 @@ impl Gru {
             all_hidden.push(hidden);
         }
 
-        stack_axis(&all_hidden[..], -2)
+        stack(&all_hidden[..], -2)
     }
 }
 
@@ -531,7 +531,7 @@ impl Lstm {
                 ifgo = addmm(&ifgo, hidden, self.wh.t(), None, None)?;
             }
 
-            let pieces = split(&ifgo, 4, -1)?;
+            let pieces = split_equal(&ifgo, 4, -1)?;
 
             let i = sigmoid(&pieces[0])?;
             let f = sigmoid(&pieces[1])?;
@@ -549,10 +549,7 @@ impl Lstm {
             all_cell.push(cell);
         }
 
-        Ok((
-            stack_axis(&all_hidden[..], -2)?,
-            stack_axis(&all_cell[..], -2)?,
-        ))
+        Ok((stack(&all_hidden[..], -2)?, stack(&all_cell[..], -2)?))
     }
 }
 
@@ -574,7 +571,7 @@ where
 // The uint tests below are ported from the python codebase
 #[cfg(test)]
 mod tests {
-    use crate::{builder::Builder, ops::maximum_device, random::normal};
+    use crate::{builder::Builder, ops::maximum, random::normal};
 
     use super::*;
 
@@ -586,7 +583,7 @@ mod tests {
         let h_out = layer.forward(RnnInput::from(&inp)).unwrap();
         assert_eq!(h_out.shape(), &[2, 25, 12]);
 
-        let nonlinearity = |x: &Array, d: &Stream| maximum_device(x, array!(0.0), d);
+        let nonlinearity = |x: &Array| maximum(x, array!(0.0));
         let mut layer = RnnBuilder::new(5, 12)
             .bias(false)
             .non_linearity(Arc::new(nonlinearity) as Arc<NonLinearity>)

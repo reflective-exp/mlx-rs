@@ -1,7 +1,5 @@
 use std::ffi::CStr;
 
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::error::Result;
 use crate::utils::guard::Guarded;
 use crate::utils::{VectorArray, optional_dtype, optional_int};
@@ -68,16 +66,14 @@ fn resolve_mode(mode: Option<QuantizationMode>) -> &'static CStr {
 /// - `group_size`: The size of the group in `w` that shares a scale and bias. (default: `64`)
 /// - `bits`: The number of bits occupied by each element of w in the returned quantized matrix.
 ///   (default: 4)
-#[generate_macro]
-#[default_device]
-pub fn quantize_device<'a>(
+pub fn quantize<'a>(
     w: impl AsRef<Array>,
-    #[optional] group_size: impl Into<Option<i32>>,
-    #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<QuantizationMode>>,
-    #[optional] global_scale: impl Into<Option<&'a Array>>,
-    #[optional] stream: impl AsRef<Stream>,
+    group_size: impl Into<Option<i32>>,
+    bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<QuantizationMode>>,
+    global_scale: impl Into<Option<&'a Array>>,
 ) -> Result<(Array, Array, Array)> {
+    let stream = Stream::thread_local_or_default();
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
     let mode = resolve_mode(mode.into());
@@ -117,19 +113,17 @@ pub fn quantize_device<'a>(
 /// floating point scale and bias per `group_size` of elements. Each element in `w` takes `bits`
 /// bits and is packed in an unsigned 32 bit integer.
 #[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn quantized_matmul_device<'a>(
+pub fn quantized_matmul<'a>(
     x: impl AsRef<Array>,
     w: impl AsRef<Array>,
     scales: impl AsRef<Array>,
-    #[optional] biases: impl Into<Option<&'a Array>>,
-    #[optional] transpose: impl Into<Option<bool>>,
-    #[optional] group_size: impl Into<Option<i32>>,
-    #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<QuantizationMode>>,
-    #[optional] stream: impl AsRef<Stream>,
+    biases: impl Into<Option<&'a Array>>,
+    transpose: impl Into<Option<bool>>,
+    group_size: impl Into<Option<i32>>,
+    bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<QuantizationMode>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let transpose = transpose.into().unwrap_or(false);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
@@ -164,19 +158,17 @@ pub fn quantized_matmul_device<'a>(
 ///
 /// - `output_dtype`: The dtype of the dequantized output. When `None`, MLX picks the output dtype.
 #[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn dequantize_device<'a>(
+pub fn dequantize<'a>(
     w: impl AsRef<Array>,
     scales: impl AsRef<Array>,
-    #[optional] biases: impl Into<Option<&'a Array>>,
-    #[optional] group_size: impl Into<Option<i32>>,
-    #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<QuantizationMode>>,
-    #[optional] global_scale: impl Into<Option<&'a Array>>,
-    #[optional] output_dtype: impl Into<Option<Dtype>>,
-    #[optional] stream: impl AsRef<Stream>,
+    biases: impl Into<Option<&'a Array>>,
+    group_size: impl Into<Option<i32>>,
+    bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<QuantizationMode>>,
+    global_scale: impl Into<Option<&'a Array>>,
+    output_dtype: impl Into<Option<Dtype>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
     let mode = resolve_mode(mode.into());
@@ -223,22 +215,20 @@ pub fn dequantize_device<'a>(
 /// - `bits`: The number of bits per element (default: 4)
 /// - `sorted_indices`: If true, indicates the indices are sorted (default: false)
 #[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
+pub fn gather_qmm<'b, 'lhs, 'rhs>(
     x: impl AsRef<Array>,
     w: impl AsRef<Array>,
     scales: impl AsRef<Array>,
-    #[optional] biases: impl Into<Option<&'b Array>>,
-    #[optional] lhs_indices: impl Into<Option<&'lhs Array>>,
-    #[optional] rhs_indices: impl Into<Option<&'rhs Array>>,
-    #[optional] transpose: impl Into<Option<bool>>,
-    #[optional] group_size: impl Into<Option<i32>>,
-    #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<QuantizationMode>>,
-    #[optional] sorted_indices: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    biases: impl Into<Option<&'b Array>>,
+    lhs_indices: impl Into<Option<&'lhs Array>>,
+    rhs_indices: impl Into<Option<&'rhs Array>>,
+    transpose: impl Into<Option<bool>>,
+    group_size: impl Into<Option<i32>>,
+    bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<QuantizationMode>>,
+    sorted_indices: impl Into<Option<bool>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let transpose = transpose.into().unwrap_or(true);
     let group_size = optional_int(group_size.into(), DEFAULT_GROUP_SIZE);
     let bits = optional_int(bits.into(), DEFAULT_BITS);
@@ -297,17 +287,15 @@ pub fn gather_qmm_device<'b, 'lhs, 'rhs>(
 /// - `mode`: Quantization mode - either [`QuantizationMode::Nvfp4`] or [`QuantizationMode::Mxfp8`]
 ///   (default: `Nvfp4`)
 #[cfg(not(target_os = "macos"))]
-#[generate_macro]
-#[default_device]
-pub fn qqmm_device<'a>(
+pub fn qqmm<'a>(
     x: impl AsRef<Array>,
     w: impl AsRef<Array>,
-    #[optional] w_scales: impl Into<Option<&'a Array>>,
-    #[optional] group_size: impl Into<Option<i32>>,
-    #[optional] bits: impl Into<Option<i32>>,
-    #[optional] mode: impl Into<Option<QuantizationMode>>,
-    #[optional] stream: impl AsRef<Stream>,
+    w_scales: impl Into<Option<&'a Array>>,
+    group_size: impl Into<Option<i32>>,
+    bits: impl Into<Option<i32>>,
+    mode: impl Into<Option<QuantizationMode>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let mode = mode.into().unwrap_or(QuantizationMode::Nvfp4);
 
     // Defaults depend on mode

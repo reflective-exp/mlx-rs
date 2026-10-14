@@ -6,22 +6,18 @@ use crate::error::{Exception, Result};
 use crate::utils::guard::Guarded;
 use crate::utils::{IntoOption, SUCCESS, VectorArray};
 use crate::{Array, Dtype, Stream};
-use mlx_internal_macros::{default_device, generate_macro};
 
 /// Optimized implementation of `NN.RoPE`.
-#[allow(clippy::too_many_arguments)]
-#[generate_macro(customize(root = "$crate::fast"))]
-#[default_device]
-pub fn rope_device<'a>(
-    #[named] array: impl AsRef<Array>,
-    #[named] dimensions: i32,
-    #[named] traditional: bool,
-    #[optional] base: impl Into<Option<f32>>,
-    #[named] scale: f32,
-    #[named] offset: i32,
-    #[optional] freqs: impl Into<Option<&'a Array>>,
-    #[optional] stream: impl AsRef<Stream>,
+pub fn rope<'a>(
+    array: impl AsRef<Array>,
+    dimensions: i32,
+    traditional: bool,
+    base: impl Into<Option<f32>>,
+    scale: f32,
+    offset: i32,
+    freqs: impl Into<Option<&'a Array>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let base = base.into();
     let base = mlx_sys::mlx_optional_float {
         value: base.unwrap_or(0.0),
@@ -59,20 +55,16 @@ pub fn rope_device<'a>(
 /// - `scale`: The scale to apply to the positions
 /// - `offset`: An array of position offsets
 /// - `freqs`: Optional precomputed frequencies
-/// - `stream`: Stream to evaluate on
-#[allow(clippy::too_many_arguments)]
-#[generate_macro(customize(root = "$crate::fast"))]
-#[default_device]
-pub fn rope_dynamic_device<'a>(
-    #[named] array: impl AsRef<Array>,
-    #[named] dimensions: i32,
-    #[named] traditional: bool,
-    #[optional] base: impl Into<Option<f32>>,
-    #[named] scale: f32,
-    #[named] offset: impl AsRef<Array>,
-    #[optional] freqs: impl Into<Option<&'a Array>>,
-    #[optional] stream: impl AsRef<Stream>,
+pub fn rope_dynamic<'a>(
+    array: impl AsRef<Array>,
+    dimensions: i32,
+    traditional: bool,
+    base: impl Into<Option<f32>>,
+    scale: f32,
+    offset: impl AsRef<Array>,
+    freqs: impl Into<Option<&'a Array>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let base = base.into();
     let base = mlx_sys::mlx_optional_float {
         value: base.unwrap_or(0.0),
@@ -141,17 +133,15 @@ impl ScaledDotProductAttentionMask<'_> {
 /// > Note: The softmax operation is performed in float32 precision regardless of input precision (float16 or float32).
 ///
 /// > Note: For Grouped Query Attention and Multi-Query Attention, the input arrays for `key` and `value` should not be pre-tiled to match the `query` array.
-#[generate_macro(customize(root = "$crate::fast"))]
-#[default_device]
-pub fn scaled_dot_product_attention_device<'a>(
+pub fn scaled_dot_product_attention<'a>(
     queries: impl AsRef<Array>,
     keys: impl AsRef<Array>,
     values: impl AsRef<Array>,
     scale: f32,
-    #[optional] mask: impl IntoOption<ScaledDotProductAttentionMask<'a>>,
-    #[optional] sinks: impl Into<Option<&'a Array>>,
-    #[optional] stream: impl AsRef<Stream>,
+    mask: impl IntoOption<ScaledDotProductAttentionMask<'a>>,
+    sinks: impl Into<Option<&'a Array>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let (mask_mode, mask_arr) = mask.into_option().map_or_else(
         || (DEFAULT_MASK_MODE, crate::utils::empty_array_ptr()),
         |m| m.as_mode_and_mask(),
@@ -187,15 +177,12 @@ pub fn scaled_dot_product_attention_device<'a>(
 ///   with the same size as the last axis of `x`. If not given no scaling will occur, and the
 ///   underlying kernel skips the per-element multiply.
 /// - eps: A small additive constant for numerical stability
-/// - stream: stream or device to evaluate on
-#[generate_macro(customize(root = "$crate::fast"))]
-#[default_device]
-pub fn rms_norm_device<'a>(
-    #[named] x: impl AsRef<Array>,
-    #[optional] weight: impl Into<Option<&'a Array>>,
-    #[named] eps: f32,
-    #[optional] stream: impl AsRef<Stream>,
+pub fn rms_norm<'a>(
+    x: impl AsRef<Array>,
+    weight: impl Into<Option<&'a Array>>,
+    eps: f32,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fast_rms_norm(
             res,
@@ -222,16 +209,13 @@ pub fn rms_norm_device<'a>(
 /// - bias: An additive offset to be added to the result. The `bias` should be one-dimensional
 ///   with the same size as the last axis of `x`.  It not given no offset will occur.
 /// - eps: A small additive constant for numerical stability
-/// - stream: stream or device to evaluate on
-#[generate_macro(customize(root = "$crate::fast"))]
-#[default_device]
-pub fn layer_norm_device<'a>(
-    #[named] x: impl AsRef<Array>,
-    #[optional] weight: impl Into<Option<&'a Array>>,
-    #[optional] bias: impl Into<Option<&'a Array>>,
-    #[named] eps: f32,
-    #[optional] stream: impl AsRef<Stream>,
+pub fn layer_norm<'a>(
+    x: impl AsRef<Array>,
+    weight: impl Into<Option<&'a Array>>,
+    bias: impl Into<Option<&'a Array>>,
+    eps: f32,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fast_layer_norm(
             res,
@@ -347,23 +331,14 @@ impl MetalKernel {
         MetalKernelBuilder::new(name, source)
     }
 
-    /// Runs the kernel on the default stream. See [`apply_device`](MetalKernel::apply_device).
+    /// Runs the kernel, returning one [`Array`] per output declared on `config` via
+    /// [`MetalKernelConfig::output_arg`].
     pub fn apply(
         &self,
         inputs: impl IntoIterator<Item = impl AsRef<Array>>,
         config: &MetalKernelConfig,
     ) -> Result<Vec<Array>> {
-        self.apply_device(inputs, config, Stream::thread_local_or_default())
-    }
-
-    /// Runs the kernel on `stream`, returning one [`Array`] per output declared
-    /// on `config` via [`MetalKernelConfig::output_arg`].
-    pub fn apply_device(
-        &self,
-        inputs: impl IntoIterator<Item = impl AsRef<Array>>,
-        config: &MetalKernelConfig,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Vec<Array>> {
+        let stream = Stream::thread_local_or_default();
         let inputs = VectorArray::try_from_iter(inputs.into_iter())?;
         Vec::<Array>::try_from_op(|res| unsafe {
             mlx_sys::mlx_fast_metal_kernel_apply(

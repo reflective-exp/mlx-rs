@@ -2,7 +2,29 @@ use crate::error::Result;
 use crate::utils::guard::Guarded;
 use crate::utils::optional_dtype;
 use crate::{Array, Dtype, Stream};
-use mlx_internal_macros::{default_device, generate_macro};
+
+/// Axis and scan direction for [`Array::logcumsumexp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LogCumsumExpOptions {
+    /// `None` flattens the input before scanning.
+    pub axis: Option<i32>,
+
+    /// Scan in reverse order.
+    pub reverse: bool,
+
+    /// Include the current value in each output position.
+    pub inclusive: bool,
+}
+
+impl Default for LogCumsumExpOptions {
+    fn default() -> Self {
+        Self {
+            axis: None,
+            reverse: false,
+            inclusive: true,
+        }
+    }
+}
 
 impl Array {
     /// Return the cumulative maximum of the elements along the given axis returning an error if the inputs are invalid.
@@ -22,15 +44,13 @@ impl Array {
     /// // result is [[5, 8], [5, 9]] -- cumulative max along the columns
     /// let result = array.cummax(0, None, None).unwrap();
     /// ```
-    #[default_device]
-    pub fn cummax_device(
+    pub fn cummax(
         &self,
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let stream = stream.as_ref();
+        let stream = Stream::thread_local_or_default();
 
         match axis.into() {
             Some(axis) => Array::try_from_op(|res| unsafe {
@@ -45,7 +65,7 @@ impl Array {
             }),
             None => {
                 let shape = &[-1];
-                let flat = self.reshape_device(shape, stream)?;
+                let flat = self.reshape(shape)?;
                 Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_cummax_axis(
                         res,
@@ -77,15 +97,13 @@ impl Array {
     /// // result is [[5, 8], [4, 8]] -- cumulative min along the columns
     /// let result = array.cummin(0, None, None).unwrap();
     /// ```
-    #[default_device]
-    pub fn cummin_device(
+    pub fn cummin(
         &self,
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let stream = stream.as_ref();
+        let stream = Stream::thread_local_or_default();
 
         match axis.into() {
             Some(axis) => Array::try_from_op(|res| unsafe {
@@ -100,7 +118,7 @@ impl Array {
             }),
             None => {
                 let shape = &[-1];
-                let flat = self.reshape_device(shape, stream)?;
+                let flat = self.reshape(shape)?;
                 Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_cummin_axis(
                         res,
@@ -132,16 +150,14 @@ impl Array {
     /// // result is [[5, 8], [20, 72]] -- cumulative min along the columns
     /// let result = array.cumprod(0, None, None, None).unwrap();
     /// ```
-    #[default_device]
-    pub fn cumprod_device(
+    pub fn cumprod(
         &self,
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
         dtype: impl Into<Option<Dtype>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let stream = stream.as_ref();
+        let stream = Stream::thread_local_or_default();
         let dtype = optional_dtype(dtype.into());
 
         match axis.into() {
@@ -158,7 +174,7 @@ impl Array {
             }),
             None => {
                 let shape = &[-1];
-                let flat = self.reshape_device(shape, stream)?;
+                let flat = self.reshape(shape)?;
                 Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_cumprod_axis(
                         res,
@@ -191,16 +207,14 @@ impl Array {
     /// // result is [[5, 8], [9, 17]] -- cumulative min along the columns
     /// let result = array.cumsum(0, None, None, None).unwrap();
     /// ```
-    #[default_device]
-    pub fn cumsum_device(
+    pub fn cumsum(
         &self,
         axis: impl Into<Option<i32>>,
         reverse: impl Into<Option<bool>>,
         inclusive: impl Into<Option<bool>>,
         dtype: impl Into<Option<Dtype>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let stream = stream.as_ref();
+        let stream = Stream::thread_local_or_default();
         let dtype = optional_dtype(dtype.into());
 
         match axis.into() {
@@ -217,7 +231,7 @@ impl Array {
             }),
             None => {
                 let shape = &[-1];
-                let flat = self.reshape_device(shape, stream)?;
+                let flat = self.reshape(shape)?;
                 Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_cumsum_axis(
                         res,
@@ -239,33 +253,35 @@ impl Array {
     ///
     /// # Params
     ///
-    /// - axis: Optional axis to accumulate over. If unspecified the flattened array is used.
-    /// - reverse: If true, accumulate in reverse - defaults to false if unspecified.
-    /// - inclusive: If true, the i-th element of the output includes the i-th element of the
-    ///   input - defaults to true if unspecified.
+    /// - options: see [`LogCumsumExpOptions`]
+    ///   - axis: Optional axis to accumulate over. If `None` the flattened array is used.
+    ///   - reverse: If true, accumulate in reverse - defaults to false.
+    ///   - inclusive: If true, the i-th element of the output includes the i-th element of the
+    ///     input - defaults to true.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use mlx_rs::Array;
+    /// use mlx_rs::{Array, ops::LogCumsumExpOptions};
     /// let array = Array::from_slice(&[0.0, 0.0, 0.0, 0.0], &[4]);
     ///
     /// // [0, ln 2, ln 3, ln 4]
-    /// let result = array.logcumsumexp(0, None, None).unwrap();
+    /// let result = array
+    ///     .logcumsumexp(LogCumsumExpOptions {
+    ///         axis: Some(0),
+    ///         ..Default::default()
+    ///     })
+    ///     .unwrap();
     /// ```
-    #[default_device]
-    pub fn logcumsumexp_device(
-        &self,
-        axis: impl Into<Option<i32>>,
-        reverse: impl Into<Option<bool>>,
-        inclusive: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
-        let stream = stream.as_ref();
-        let reverse = reverse.into().unwrap_or(false);
-        let inclusive = inclusive.into().unwrap_or(true);
+    pub fn logcumsumexp(&self, options: LogCumsumExpOptions) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        let LogCumsumExpOptions {
+            axis,
+            reverse,
+            inclusive,
+        } = options;
 
-        match axis.into() {
+        match axis {
             Some(axis) => Array::try_from_op(|res| unsafe {
                 mlx_sys::mlx_logcumsumexp_axis(
                     res,
@@ -277,7 +293,7 @@ impl Array {
                 )
             }),
             None => {
-                let flat = self.reshape_device(&[-1], stream)?;
+                let flat = self.reshape(&[-1])?;
                 Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_logcumsumexp_axis(
                         res,
@@ -294,73 +310,50 @@ impl Array {
 }
 
 /// See [`Array::cummax`]
-#[generate_macro]
-#[default_device]
-pub fn cummax_device(
+pub fn cummax(
     a: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] reverse: impl Into<Option<bool>>,
-    #[optional] inclusive: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
+    reverse: impl Into<Option<bool>>,
+    inclusive: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    a.as_ref().cummax_device(axis, reverse, inclusive, stream)
+    a.as_ref().cummax(axis, reverse, inclusive)
 }
 
 /// See [`Array::cummin`]
-#[generate_macro]
-#[default_device]
-pub fn cummin_device(
+pub fn cummin(
     a: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] reverse: impl Into<Option<bool>>,
-    #[optional] inclusive: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
+    reverse: impl Into<Option<bool>>,
+    inclusive: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    a.as_ref().cummin_device(axis, reverse, inclusive, stream)
+    a.as_ref().cummin(axis, reverse, inclusive)
 }
 
 /// See [`Array::cumprod`]
-#[generate_macro]
-#[default_device]
-pub fn cumprod_device(
+pub fn cumprod(
     a: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] reverse: impl Into<Option<bool>>,
-    #[optional] inclusive: impl Into<Option<bool>>,
-    #[optional] dtype: impl Into<Option<Dtype>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
+    reverse: impl Into<Option<bool>>,
+    inclusive: impl Into<Option<bool>>,
+    dtype: impl Into<Option<Dtype>>,
 ) -> Result<Array> {
-    a.as_ref()
-        .cumprod_device(axis, reverse, inclusive, dtype, stream)
+    a.as_ref().cumprod(axis, reverse, inclusive, dtype)
 }
 
 /// See [`Array::cumsum`]
-#[generate_macro]
-#[default_device]
-pub fn cumsum_device(
+pub fn cumsum(
     a: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] reverse: impl Into<Option<bool>>,
-    #[optional] inclusive: impl Into<Option<bool>>,
-    #[optional] dtype: impl Into<Option<Dtype>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
+    reverse: impl Into<Option<bool>>,
+    inclusive: impl Into<Option<bool>>,
+    dtype: impl Into<Option<Dtype>>,
 ) -> Result<Array> {
-    a.as_ref()
-        .cumsum_device(axis, reverse, inclusive, dtype, stream)
+    a.as_ref().cumsum(axis, reverse, inclusive, dtype)
 }
 
 /// See [`Array::logcumsumexp`]
-#[generate_macro]
-#[default_device]
-pub fn logcumsumexp_device(
-    a: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] reverse: impl Into<Option<bool>>,
-    #[optional] inclusive: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref()
-        .logcumsumexp_device(axis, reverse, inclusive, stream)
+pub fn logcumsumexp(a: impl AsRef<Array>, options: LogCumsumExpOptions) -> Result<Array> {
+    a.as_ref().logcumsumexp(options)
 }
 
 #[cfg(test)]
@@ -509,7 +502,11 @@ mod tests {
     fn test_logcumsumexp() {
         // logcumsumexp of equal values grows by ln(k) over the running count.
         let array = Array::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4]);
-        let result = array.logcumsumexp(0, None, None).unwrap();
+        let axis0 = LogCumsumExpOptions {
+            axis: Some(0),
+            ..Default::default()
+        };
+        let result = array.logcumsumexp(axis0).unwrap();
         let expected = Array::from_slice(&[0.0f32, 2.0f32.ln(), 3.0f32.ln(), 4.0f32.ln()], &[4]);
         assert!(
             result
@@ -520,19 +517,29 @@ mod tests {
 
         // No axis flattens first.
         let array = Array::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[2, 2]);
-        let result = array.logcumsumexp(None, None, None).unwrap();
+        let result = array.logcumsumexp(LogCumsumExpOptions::default()).unwrap();
         assert_eq!(result.shape(), &[4]);
 
         // exclusive: the first entry is -inf (log of an empty sum).
         let array = Array::from_slice(&[0.0f32, 0.0], &[2]);
-        let result = array.logcumsumexp(0, None, false).unwrap();
+        let result = array
+            .logcumsumexp(LogCumsumExpOptions {
+                inclusive: false,
+                ..axis0
+            })
+            .unwrap();
         let data: &[f32] = result.as_slice();
         assert!(data[0].is_infinite() && data[0].is_sign_negative());
         assert!((data[1] - 0.0).abs() < 1e-5);
 
         // reverse accumulates from the end.
         let array = Array::from_slice(&[0.0f32, 0.0, 0.0], &[3]);
-        let result = array.logcumsumexp(0, true, None).unwrap();
+        let result = array
+            .logcumsumexp(LogCumsumExpOptions {
+                reverse: true,
+                ..axis0
+            })
+            .unwrap();
         let expected = Array::from_slice(&[3.0f32.ln(), 2.0f32.ln(), 0.0], &[3]);
         assert!(
             result
@@ -541,6 +548,13 @@ mod tests {
                 .item::<bool>()
         );
 
-        assert!(array.logcumsumexp(2, None, None).is_err());
+        assert!(
+            array
+                .logcumsumexp(LogCumsumExpOptions {
+                    axis: Some(2),
+                    ..Default::default()
+                })
+                .is_err()
+        );
     }
 }

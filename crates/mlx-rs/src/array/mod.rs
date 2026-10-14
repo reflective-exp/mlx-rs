@@ -4,7 +4,6 @@ use crate::error::AsSliceError;
 use crate::sealed::Sealed;
 use crate::utils::{SUCCESS, guard::Guarded};
 use element::FromSliceElement;
-use mlx_internal_macros::default_device;
 use mlx_sys::mlx_array;
 use num_complex::Complex;
 use std::{
@@ -541,11 +540,8 @@ impl Sum for Array {
 ///
 /// The operation is the identity but it prevents gradients from flowing
 /// through the array.
-#[default_device]
-pub fn stop_gradient_device(
-    a: impl AsRef<Array>,
-    stream: impl AsRef<Stream>,
-) -> crate::error::Result<Array> {
+pub fn stop_gradient(a: impl AsRef<Array>) -> crate::error::Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_stop_gradient(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })

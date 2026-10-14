@@ -344,7 +344,6 @@ name = "mlx-internal-macros"
 version = "0.1.0"
 dependencies = [
  "darling",
- "itertools",
  "proc-macro2",
  "quote",
  "syn 3.0.9",

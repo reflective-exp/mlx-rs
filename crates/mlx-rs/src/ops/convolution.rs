@@ -2,7 +2,6 @@ use crate::error::Result;
 use crate::utils::IntoOption;
 use crate::utils::guard::Guarded;
 use crate::{Array, Stream};
-use mlx_internal_macros::{default_device, generate_macro};
 
 /// General convolution over an input with several channels returning an error if the inputs are invalid.
 ///
@@ -21,20 +20,18 @@ use mlx_internal_macros::{default_device, generate_macro};
 /// - flip: Flip the order in which the spatial dimensions of the weights are processed.
 ///   Performs the cross-correlation operator when `flip` is `false` and the convolution
 ///   operator otherwise.
-#[generate_macro]
-#[default_device]
 #[allow(clippy::too_many_arguments)]
-pub fn conv_general_device<'a>(
+pub fn conv_general<'a>(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] padding: impl IntoOption<&'a [i32]>,
-    #[optional] kernel_dilation: impl IntoOption<&'a [i32]>,
-    #[optional] input_dilation: impl IntoOption<&'a [i32]>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] flip: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
+    padding: impl IntoOption<&'a [i32]>,
+    kernel_dilation: impl IntoOption<&'a [i32]>,
+    input_dilation: impl IntoOption<&'a [i32]>,
+    groups: impl Into<Option<i32>>,
+    flip: impl Into<Option<bool>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = strides.into_option().unwrap_or(&[1]);
     let padding = padding.into_option().unwrap_or(&[0]);
     let kernel_dilation = kernel_dilation.into_option().unwrap_or(&[1]);
@@ -76,17 +73,15 @@ pub fn conv_general_device<'a>(
 /// - padding: input padding. Default to 0 if not specified.
 /// - dilation: kernel dilation. Default to 1 if not specified.
 /// - groups: input feature groups. Default to 1 if not specified.
-#[generate_macro]
-#[default_device]
-pub fn conv1d_device(
+pub fn conv1d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<i32>>,
-    #[optional] padding: impl Into<Option<i32>>,
-    #[optional] dilation: impl Into<Option<i32>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<i32>>,
+    padding: impl Into<Option<i32>>,
+    dilation: impl Into<Option<i32>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or(1);
     let padding = padding.into().unwrap_or(0);
     let dilation = dilation.into().unwrap_or(1);
@@ -118,17 +113,15 @@ pub fn conv1d_device(
 /// - padding: input padding. Default to (0, 0) if not specified.
 /// - dilation: kernel dilation. Default to (1, 1) if not specified.
 /// - groups: input feature groups. Default to 1 if not specified.
-#[generate_macro]
-#[default_device]
-pub fn conv2d_device(
+pub fn conv2d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<(i32, i32)>>,
-    #[optional] padding: impl Into<Option<(i32, i32)>>,
-    #[optional] dilation: impl Into<Option<(i32, i32)>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<(i32, i32)>>,
+    padding: impl Into<Option<(i32, i32)>>,
+    dilation: impl Into<Option<(i32, i32)>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or((1, 1));
     let padding = padding.into().unwrap_or((0, 0));
     let dilation = dilation.into().unwrap_or((1, 1));
@@ -154,17 +147,15 @@ pub fn conv2d_device(
 /// 3D convolution over an input with several channels.
 ///
 /// Only the default `groups=1` is currently supported.
-#[generate_macro]
-#[default_device]
-pub fn conv3d_device(
+pub fn conv3d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] padding: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] dilation: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<(i32, i32, i32)>>,
+    padding: impl Into<Option<(i32, i32, i32)>>,
+    dilation: impl Into<Option<(i32, i32, i32)>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or((1, 1, 1));
     let padding = padding.into().unwrap_or((0, 0, 0));
     let dilation = dilation.into().unwrap_or((1, 1, 1));
@@ -202,20 +193,16 @@ pub fn conv3d_device(
 /// - padding: input padding. Default to 0 if not specified.
 /// - dilation: kernel dilation. Default to 1 if not specified.
 /// - groups: input feature groups. Default to 1 if not specified.
-/// - stream: stream or device to evaluate on.
-#[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn conv_transpose1d_device(
+pub fn conv_transpose1d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<i32>>,
-    #[optional] padding: impl Into<Option<i32>>,
-    #[optional] dilation: impl Into<Option<i32>>,
-    #[optional] output_padding: impl Into<Option<i32>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<i32>>,
+    padding: impl Into<Option<i32>>,
+    dilation: impl Into<Option<i32>>,
+    output_padding: impl Into<Option<i32>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or(1);
     let padding = padding.into().unwrap_or(0);
     let dilation = dilation.into().unwrap_or(1);
@@ -250,20 +237,16 @@ pub fn conv_transpose1d_device(
 /// - padding: input padding. Default to (0, 0) if not specified.
 /// - dilation: kernel dilation. Default to (1, 1) if not specified.
 /// - groups: input feature groups. Default to 1 if not specified.
-/// - stream: stream or device to evaluate on.
-#[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn conv_transpose2d_device(
+pub fn conv_transpose2d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<(i32, i32)>>,
-    #[optional] padding: impl Into<Option<(i32, i32)>>,
-    #[optional] dilation: impl Into<Option<(i32, i32)>>,
-    #[optional] output_padding: impl Into<Option<(i32, i32)>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<(i32, i32)>>,
+    padding: impl Into<Option<(i32, i32)>>,
+    dilation: impl Into<Option<(i32, i32)>>,
+    output_padding: impl Into<Option<(i32, i32)>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or((1, 1));
     let padding = padding.into().unwrap_or((0, 0));
     let dilation = dilation.into().unwrap_or((1, 1));
@@ -302,20 +285,16 @@ pub fn conv_transpose2d_device(
 /// - padding: input padding. Default to (0, 0, 0) if not specified.
 /// - dilation: kernel dilation. Default to (1, 1, 1) if not specified.
 /// - groups: input feature groups. Default to 1 if not specified.
-/// - stream: stream or device to evaluate on.
-#[allow(clippy::too_many_arguments)]
-#[generate_macro]
-#[default_device]
-pub fn conv_transpose3d_device(
+pub fn conv_transpose3d(
     array: impl AsRef<Array>,
     weight: impl AsRef<Array>,
-    #[optional] stride: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] padding: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] dilation: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] output_padding: impl Into<Option<(i32, i32, i32)>>,
-    #[optional] groups: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    stride: impl Into<Option<(i32, i32, i32)>>,
+    padding: impl Into<Option<(i32, i32, i32)>>,
+    dilation: impl Into<Option<(i32, i32, i32)>>,
+    output_padding: impl Into<Option<(i32, i32, i32)>>,
+    groups: impl Into<Option<i32>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let stride = stride.into().unwrap_or((1, 1, 1));
     let padding = padding.into().unwrap_or((0, 0, 0));
     let dilation = dilation.into().unwrap_or((1, 1, 1));

@@ -1,11 +1,12 @@
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::error::Result;
-use crate::utils::{IntoOption, guard::Guarded};
+use crate::utils::guard::Guarded;
 use crate::{Array, Stream};
 
-use super::utils::{resolve_size_and_axis_unchecked, resolve_sizes_and_axes_unchecked};
-use super::{FftNorm, resolve_norm};
+use super::utils::{
+    require_real_axis, resolve_inverse_real_length, resolve_lengths_and_axes,
+    resolve_lengths_and_axes_2d, resolve_size_and_axis_unchecked,
+};
+use super::{FftNorm, FftnOptions, resolve_norm};
 
 /// One dimensional discrete Fourier Transform on a real input.
 ///
@@ -16,17 +17,15 @@ use super::{FftNorm, resolve_norm};
 ///
 /// - `a`: The input array. If the array is complex it will be silently cast to a real type.
 /// - `n`: Size of the transformed axis. The corresponding axis in the input is truncated or padded
-///  with zeros to match `n`. The default value is `a.shape[axis]` if not specified.
+///   with zeros to match `n`. The default value is `a.shape[axis]` if not specified.
 /// - `axis`: Axis along which to perform the FFT. The default is `-1` if not specified.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn rfft_device(
+pub fn rfft(
     a: impl AsRef<Array>,
-    #[optional] n: impl Into<Option<i32>>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
+    n: impl Into<Option<i32>>,
+    axis: impl Into<Option<i32>>,
+    norm: impl Into<Option<FftNorm>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let (n, axis) = resolve_size_and_axis_unchecked(a, n.into(), axis.into());
     let norm = resolve_norm(norm.into());
@@ -38,34 +37,28 @@ pub fn rfft_device(
 /// Two-dimensional real discrete Fourier Transform.
 ///
 /// The output has the same shape as the input except along the dimensions in `axes` in which case
-/// it has sizes from `s`. The last axis in `axes` is treated as the real axis and will have size
-/// `s[s.len()-1] // 2 + 1`.
+/// it has sizes from `lengths`. The last axis in `axes` is treated as the real axis and will have
+/// size `lengths[lengths.len()-1] // 2 + 1`.
 ///
 /// # Params
 ///
 /// - `a`: The input array. If the array is complex it will be silently cast to a real type.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-/// padded with zeros to match `s`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `[-2, -1]`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn rfft2_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The corresponding axes in the input are
+///   truncated or padded with zeros to match `lengths`, which default to the sizes of `a` along
+///   `axes`. [`Axes::All`](crate::Axes::All) (the default) selects the last two axes, `[-2, -1]`.
+pub fn rfft2(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let axes = axes.into_option().unwrap_or(&[-2, -1]);
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), Some(axes));
+    let (s, axes) =
+        resolve_lengths_and_axes_2d(a.shape(), options.lengths.as_deref(), &options.axes)?;
+    require_real_axis(&axes)?;
 
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_rfft2(
@@ -84,34 +77,26 @@ pub fn rfft2_device<'a>(
 /// n-dimensional real discrete Fourier Transform.
 ///
 /// The output has the same shape as the input except along the dimensions in `axes` in which case
-/// it has sizes from `s`. The last axis in `axes` is treated as the real axis and will have size
-/// `s[s.len()-1] // 2 + 1`.
+/// it has sizes from `lengths`. The last axis in `axes` is treated as the real axis and will have
+/// size `lengths[lengths.len()-1] // 2 + 1`.
 ///
 /// # Params
 ///
 /// - `a`: The input array. If the array is complex it will be silently cast to a real type.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-/// padded with zeros to match `s`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `None` in which case the FFT is over
-///   the last `len(s)` axes or all axes if `s` is also `None`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn rfftn_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The default transforms all axes at
+///   their input sizes.
+pub fn rfftn(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let (s, axes) = resolve_sizes_and_axes_unchecked(a, s.into_option(), axes.into_option());
+    let (s, axes) = resolve_lengths_and_axes(a.shape(), options.lengths.as_deref(), &options.axes)?;
+    require_real_axis(&axes)?;
 
     let num_s = s.len();
     let num_axes = axes.len();
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_rfftn(
@@ -127,7 +112,7 @@ pub fn rfftn_device<'a>(
     })
 }
 
-/// The inverse of [`rfft(, None)`].
+/// The inverse of [`rfft()`].
 ///
 /// The output has the same shape as the input except along axis in which case it has size n.
 ///
@@ -137,15 +122,13 @@ pub fn rfftn_device<'a>(
 /// - `n`: Size of the transformed axis. The corresponding axis in the input is truncated or padded
 ///   with zeros to match `n // 2 + 1`. The default value is `a.shape[axis] // 2 + 1`.
 /// - `axis`: Axis along which to perform the FFT. The default is `-1`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn irfft_device(
+pub fn irfft(
     a: impl AsRef<Array>,
-    #[optional] n: impl Into<Option<i32>>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
+    n: impl Into<Option<i32>>,
+    axis: impl Into<Option<i32>>,
+    norm: impl Into<Option<FftNorm>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
     let n = n.into();
     let axis = axis.into();
@@ -161,37 +144,30 @@ pub fn irfft_device(
     })
 }
 
-/// The inverse of [`rfft2(, None)`].
+/// The inverse of [`rfft2()`].
 ///
 /// Note the input is generally complex. The dimensions of the input specified in `axes` are padded
-/// or truncated to match the sizes from `s`. The last axis in `axes` is treated as the real axis
-/// and will have size `s[s.len()-1] // 2 + 1`.
+/// or truncated to match the sizes from `lengths`. The last axis in `axes` is treated as the real
+/// axis and will have size `lengths[lengths.len()-1] // 2 + 1`.
 ///
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-///   padded with zeros to match the sizes in `s` except for the last axis which has size
-///   `s[s.len()-1] // 2 + 1`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `[-2, -1]`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn irfft2_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The corresponding axes in the input are
+///   truncated or padded with zeros to match `lengths` except for the last axis which has size
+///   `lengths[lengths.len()-1] // 2 + 1`. The default lengths are the sizes of `a` along `axes`.
+///   [`Axes::All`](crate::Axes::All) (the default) selects the last two axes, `[-2, -1]`.
+pub fn irfft2(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let s = s.into_option();
-    let axes = axes.into_option().unwrap_or(&[-2, -1]);
-    let modify_last_axis = s.is_none();
+    let modify_last_axis = options.lengths.is_none();
 
-    let (mut s, axes) = resolve_sizes_and_axes_unchecked(a, s, Some(axes));
+    let (mut s, axes) =
+        resolve_lengths_and_axes_2d(a.shape(), options.lengths.as_deref(), &options.axes)?;
+    require_real_axis(&axes)?;
     if modify_last_axis {
         let end = s.len() - 1;
-        s[end] = (s[end] - 1) * 2;
+        s[end] = resolve_inverse_real_length(s[end])?;
     }
 
     let num_s = s.len();
@@ -199,7 +175,7 @@ pub fn irfft2_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_irfft2(
@@ -215,38 +191,30 @@ pub fn irfft2_device<'a>(
     })
 }
 
-/// The inverse of [`rfftn(, None)`].
+/// The inverse of [`rfftn()`].
 ///
 /// Note the input is generally complex. The dimensions of the input specified in `axes` are padded
-/// or truncated to match the sizes from `s`. The last axis in `axes` is treated as the real axis
-/// and will have size `s[s.len()-1] // 2 + 1`.
+/// or truncated to match the sizes from `lengths`. The last axis in `axes` is treated as the real
+/// axis and will have size `lengths[lengths.len()-1] // 2 + 1`.
 ///
 /// # Params
 ///
 /// - `a`: The input array.
-/// - `s`: Sizes of the transformed axes. The corresponding axes in the input are truncated or
-///   padded with zeros to match the sizes in `s` except for the last axis which has size
-///   `s[s.len()-1] // 2 + 1`. The default value is the sizes of `a` along `axes`.
-/// - `axes`: Axes along which to perform the FFT. The default is `None` in which case the FFT is
-///  over the last `len(s)` axes or all axes if `s` is also `None`.
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn irfftn_device<'a>(
-    a: impl AsRef<Array>,
-    #[optional] s: impl IntoOption<&'a [i32]>,
-    #[optional] axes: impl IntoOption<&'a [i32]>,
-    #[optional] norm: impl Into<Option<FftNorm>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+/// - `options`: Transform lengths, axes and normalization. The corresponding axes in the input are
+///   truncated or padded with zeros to match `lengths` except for the last axis which has size
+///   `lengths[lengths.len()-1] // 2 + 1`. The default transforms all axes, with lengths taken from
+///   the sizes of `a` along `axes`.
+pub fn irfftn(a: impl AsRef<Array>, options: FftnOptions) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let s = s.into_option();
-    let axes = axes.into_option();
-    let modify_last_axis = s.is_none();
+    let modify_last_axis = options.lengths.is_none();
 
-    let (mut s, axes) = resolve_sizes_and_axes_unchecked(a, s, axes);
+    let (mut s, axes) =
+        resolve_lengths_and_axes(a.shape(), options.lengths.as_deref(), &options.axes)?;
+    require_real_axis(&axes)?;
     if modify_last_axis {
         let end = s.len() - 1;
-        s[end] = (s[end] - 1) * 2;
+        s[end] = resolve_inverse_real_length(s[end])?;
     }
 
     let num_s = s.len();
@@ -254,7 +222,7 @@ pub fn irfftn_device<'a>(
 
     let s_ptr = s.as_ptr();
     let axes_ptr = axes.as_ptr();
-    let norm = resolve_norm(norm.into());
+    let norm = resolve_norm(Some(options.norm));
 
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_irfftn(
@@ -272,6 +240,7 @@ pub fn irfftn_device<'a>(
 
 #[cfg(test)]
 mod tests {
+    use crate::fft::FftnOptions;
     use crate::{Array, Dtype, complex64};
 
     #[test]
@@ -328,7 +297,7 @@ mod tests {
         ];
 
         let a = Array::from_slice(RFFT2_DATA, RFFT2_SHAPE);
-        let rfft2 = super::rfft2(&a, None, None, None).unwrap();
+        let rfft2 = super::rfft2(&a, FftnOptions::default()).unwrap();
         assert_eq!(rfft2.dtype(), Dtype::Complex64);
         // A multi-axis FFT returns a strided (not row-major) view.
         assert_eq!(
@@ -336,7 +305,7 @@ mod tests {
             RFFT2_EXPECTED
         );
 
-        let irfft2 = super::irfft2(&rfft2, None, None, None).unwrap();
+        let irfft2 = super::irfft2(&rfft2, FftnOptions::default()).unwrap();
         assert_eq!(irfft2.dtype(), Dtype::Float32);
         assert_eq!(irfft2.as_slice::<f32>(), RFFT2_DATA);
     }
@@ -347,7 +316,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6 / 2 + 1];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let rfft2 = super::rfft2(&a, None, None, None).unwrap();
+        let rfft2 = super::rfft2(&a, FftnOptions::default()).unwrap();
         assert_eq!(rfft2.shape(), OUT_SHAPE);
     }
 
@@ -357,7 +326,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, (6 - 1) * 2];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let irfft2 = super::irfft2(&a, None, None, None).unwrap();
+        let irfft2 = super::irfft2(&a, FftnOptions::default()).unwrap();
         assert_eq!(irfft2.shape(), OUT_SHAPE);
     }
 
@@ -377,7 +346,7 @@ mod tests {
         ];
 
         let a = Array::from_slice(RFFTN_DATA, RFFTN_SHAPE);
-        let rfftn = super::rfftn(&a, None, None, None).unwrap();
+        let rfftn = super::rfftn(&a, FftnOptions::default()).unwrap();
         assert_eq!(rfftn.dtype(), Dtype::Complex64);
         // A multi-axis FFT returns a strided (not row-major) view.
         assert_eq!(
@@ -385,7 +354,7 @@ mod tests {
             RFFTN_EXPECTED
         );
 
-        let irfftn = super::irfftn(&rfftn, None, None, None).unwrap();
+        let irfftn = super::irfftn(&rfftn, FftnOptions::default()).unwrap();
         assert_eq!(irfftn.dtype(), Dtype::Float32);
         assert_eq!(irfftn.contiguous().unwrap().as_slice::<f32>(), RFFTN_DATA);
     }
@@ -396,7 +365,7 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6, 6 / 2 + 1];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let rfftn = super::rfftn(&a, None, None, None).unwrap();
+        let rfftn = super::rfftn(&a, FftnOptions::default()).unwrap();
         assert_eq!(rfftn.shape(), OUT_SHAPE);
     }
 
@@ -406,7 +375,17 @@ mod tests {
         const OUT_SHAPE: &[i32] = &[6, 6, (6 - 1) * 2];
 
         let a = Array::ones::<f32>(IN_SHAPE).unwrap();
-        let irfftn = super::irfftn(&a, None, None, None).unwrap();
+        let irfftn = super::irfftn(&a, FftnOptions::default()).unwrap();
         assert_eq!(irfftn.shape(), OUT_SHAPE);
+    }
+
+    #[test]
+    fn test_irfftn_rejects_empty_axes() {
+        let a = Array::ones::<f32>(&[6, 6]).unwrap();
+        let options = FftnOptions {
+            axes: Vec::new().into(),
+            ..Default::default()
+        };
+        assert!(super::irfftn(&a, options).is_err());
     }
 }

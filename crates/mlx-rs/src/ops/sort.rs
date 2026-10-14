@@ -1,7 +1,5 @@
 //! Implements bindings for the sorting ops.
 
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::{Array, Stream, error::Result, utils::guard::Guarded};
 
 /// Which side of a run of equal values [`search_sorted`] inserts at.
@@ -46,14 +44,12 @@ impl SearchSide {
 /// assert_eq!(left.as_slice::<u32>(), &[1]);
 /// assert_eq!(right.as_slice::<u32>(), &[3]);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn search_sorted_device(
+pub fn search_sorted(
     sorted: impl AsRef<Array>,
     values: impl AsRef<Array>,
-    #[optional] side: impl Into<Option<SearchSide>>,
-    #[optional] stream: impl AsRef<Stream>,
+    side: impl Into<Option<SearchSide>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let side = side.into().unwrap_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_searchsorted(
@@ -82,13 +78,8 @@ pub fn search_sorted_device(
 /// let axis = 0;
 /// let result = sort_axis(&a, axis);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn sort_axis_device(
-    a: impl AsRef<Array>,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn sort_axis(a: impl AsRef<Array>, axis: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_sort_axis(res, a.as_ref().as_ptr(), axis, stream.as_ref().as_ptr())
     })
@@ -108,9 +99,8 @@ pub fn sort_axis_device(
 /// let a = Array::from_slice(&[3, 2, 1], &[3]);
 /// let result = sort(&a);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn sort_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+pub fn sort(a: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_sort(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
@@ -132,13 +122,8 @@ pub fn sort_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>)
 /// let axis = 0;
 /// let result = argsort_axis(&a, axis);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn argsort_axis_device(
-    a: impl AsRef<Array>,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argsort_axis(a: impl AsRef<Array>, axis: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_argsort_axis(res, a.as_ref().as_ptr(), axis, stream.as_ref().as_ptr())
     })
@@ -159,12 +144,8 @@ pub fn argsort_axis_device(
 /// let a = Array::from_slice(&[3, 2, 1], &[3]);
 /// let result = argsort(&a);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn argsort_device(
-    a: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argsort(a: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_argsort(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
@@ -193,14 +174,8 @@ pub fn argsort_device(
 /// let axis = 0;
 /// let result = partition_axis(&a, kth, axis);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn partition_axis_device(
-    a: impl AsRef<Array>,
-    kth: i32,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn partition_axis(a: impl AsRef<Array>, kth: i32, axis: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_partition_axis(
             res,
@@ -233,13 +208,8 @@ pub fn partition_axis_device(
 /// let kth = 1;
 /// let result = partition(&a, kth);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn partition_device(
-    a: impl AsRef<Array>,
-    kth: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn partition(a: impl AsRef<Array>, kth: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_partition(res, a.as_ref().as_ptr(), kth, stream.as_ref().as_ptr())
     })
@@ -268,14 +238,8 @@ pub fn partition_device(
 /// let axis = 0;
 /// let result = argpartition_axis(&a, kth, axis);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn argpartition_axis_device(
-    a: impl AsRef<Array>,
-    kth: i32,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argpartition_axis(a: impl AsRef<Array>, kth: i32, axis: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_argpartition_axis(
             res,
@@ -309,13 +273,8 @@ pub fn argpartition_axis_device(
 /// let kth = 1;
 /// let result = argpartition(&a, kth);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn argpartition_device(
-    a: impl AsRef<Array>,
-    kth: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argpartition(a: impl AsRef<Array>, kth: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_argpartition(res, a.as_ref().as_ptr(), kth, stream.as_ref().as_ptr())
     })

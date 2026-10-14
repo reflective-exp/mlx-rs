@@ -210,42 +210,30 @@
 //! location:
 //!
 //! ```rust
-//! // let a = mlx_rs::random::normal(&[100], None, None, None, None).unwrap();
-//! // let b = mlx_rs::random::normal(&[100], None, None, None, None).unwrap();
-//!
-//! let a = mlx_rs::normal!(shape=&[100]).unwrap();
-//! let b = mlx_rs::normal!(shape=&[100]).unwrap();
+//! let a = mlx_rs::random::normal::<f32>(&[100], None, None, None).unwrap();
+//! let b = mlx_rs::random::normal::<f32>(&[100], None, None, None).unwrap();
 //! ```
 //!
 //! Both `a` and `b` live in unified memory.
 //!
 //! In MLX, rather than moving arrays to devices, you specify the device when
 //! you run the operation. Any device can perform any operation on `a` and `b`
-//! without needing to move them from one memory location to another. For
-//! example:
+//! without needing to move them from one memory location to another. Wrap a block of
+//! operations in [`with_device`] or [`with_stream`] to run it there; the scope is per thread and
+//! restored afterwards, even on panic. For example:
 //!
-//! ```rust,ignore
-//! // mlx_rs::ops::add_device(&a, &b, StreamOrDevice::cpu()).unwrap();
-//! // mlx_rs::ops::add_device(&a, &b, StreamOrDevice::gpu()).unwrap();
+//! ```rust
+//! use mlx_rs::{Array, Device, ops::add, with_device};
 //!
-//! mlx_rs::add!(&a, &b, stream=StreamOrDevice::cpu()).unwrap();
-//! mlx_rs::add!(&a, &b, stream=StreamOrDevice::gpu()).unwrap();
+//! let a = Array::from_slice(&[1.0f32, 2.0], &[2]);
+//! let b = Array::from_slice(&[3.0f32, 4.0], &[2]);
+//! let on_cpu = with_device(&Device::cpu(), || add(&a, &b)).unwrap();
+//! let on_gpu = with_device(&Device::gpu(), || add(&a, &b)).unwrap();
+//! assert_eq!(on_cpu.as_slice::<f32>(), &[4.0, 6.0]);
+//! assert_eq!(on_gpu.as_slice::<f32>(), &[4.0, 6.0]);
 //! ```
 //!
 //! In the above, both the CPU and the GPU will perform the same add operation.
-//!
-//! To pick the device for a whole block of operations, wrap them in [`with_device`] or
-//! [`with_stream`]. Operations inside the closure without an explicit stream run on it; the scope
-//! is per thread and restored afterwards, even on panic:
-//!
-//! ```rust
-//! use mlx_rs::{Device, ops::add, with_device};
-//!
-//! let a = mlx_rs::Array::from_slice(&[1.0f32, 2.0], &[2]);
-//! let b = mlx_rs::Array::from_slice(&[3.0f32, 4.0], &[2]);
-//! let sum = with_device(&Device::cpu(), || add(&a, &b)).unwrap();
-//! assert_eq!(sum.as_slice::<f32>(), &[4.0, 6.0]);
-//! ```
 //!
 //! TODO: The remaining python documentations states that the stream can be used
 //! to parallelize operations without worrying about racing conditions. We
@@ -315,6 +303,7 @@ pub mod nested;
 pub mod nn;
 pub mod ops;
 pub mod optimizers;
+mod options;
 pub mod quantization;
 pub mod random;
 mod stream;
@@ -324,6 +313,7 @@ pub mod utils;
 pub use array::*;
 pub use device::*;
 pub use dtype::*;
+pub use options::Axes;
 pub use stream::*;
 
 pub(crate) mod constants {

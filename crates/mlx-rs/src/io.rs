@@ -22,8 +22,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::rc::Rc;
 
-use mlx_internal_macros::default_device;
-
 use crate::error::{GgufError, ensure_error_handler, last_mlx_error_or};
 use crate::utils::SUCCESS;
 use crate::{Array, Dtype, Stream};
@@ -133,11 +131,8 @@ impl GgufFile {
     }
 
     /// Load a `.gguf` file.
-    #[default_device(device = "cpu")]
-    pub fn load_device(
-        path: impl AsRef<Path>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Self, GgufError> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, GgufError> {
+        let stream = Stream::thread_local_or_cpu();
         let path = path.as_ref();
         if !path.is_file() {
             return Err(GgufError::NotFile);

@@ -2,7 +2,6 @@ use crate::Stream;
 use crate::array::Array;
 use crate::error::Result;
 use crate::utils::guard::Guarded;
-use mlx_internal_macros::{default_device, generate_macro};
 
 impl Array {
     /// Element-wise equality returning an error if the arrays are not broadcastable.
@@ -25,8 +24,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true, true, true]
     /// ```
-    #[default_device]
-    pub fn eq_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn eq(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_equal(
                 res,
@@ -57,8 +56,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true, true, true]
     /// ```
-    #[default_device]
-    pub fn le_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn le(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_less_equal(
                 res,
@@ -89,8 +88,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true, true, true]
     /// ```
-    #[default_device]
-    pub fn ge_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn ge(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_greater_equal(
                 res,
@@ -121,8 +120,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [false, false, false]
     /// ```
-    #[default_device]
-    pub fn ne_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn ne(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_not_equal(
                 res,
@@ -152,8 +151,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [false, false, false]
     /// ```
-    #[default_device]
-    pub fn lt_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn lt(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_less(
                 res,
@@ -183,8 +182,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [false, false, false]
     /// ```
-    #[default_device]
-    pub fn gt_device(&self, other: impl AsRef<Array>, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn gt(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_greater(
                 res,
@@ -214,12 +213,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true, false, false]
     /// ```
-    #[default_device]
-    pub fn logical_and_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn logical_and(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_logical_and(
                 res,
@@ -249,12 +244,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true, true, true]
     /// ```
-    #[default_device]
-    pub fn logical_or_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn logical_or(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_logical_or(
                 res,
@@ -286,12 +277,8 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [false, true, true]
     /// ```
-    #[default_device]
-    pub fn logical_xor_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn logical_xor(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_logical_xor(
                 res,
@@ -321,12 +308,8 @@ impl Array {
     /// let c_data: &[i32] = c.as_slice();
     /// // c_data == [8, 2, 5]
     /// ```
-    #[default_device]
-    pub fn bitwise_and_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn bitwise_and(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_bitwise_and(
                 res,
@@ -356,12 +339,8 @@ impl Array {
     /// let c_data: &[i32] = c.as_slice();
     /// // c_data == [14, 11, 5]
     /// ```
-    #[default_device]
-    pub fn bitwise_or_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn bitwise_or(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_bitwise_or(
                 res,
@@ -391,12 +370,8 @@ impl Array {
     /// let c_data: &[i32] = c.as_slice();
     /// // c_data == [6, 9, 0]
     /// ```
-    #[default_device]
-    pub fn bitwise_xor_device(
-        &self,
-        other: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn bitwise_xor(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_bitwise_xor(
                 res,
@@ -422,8 +397,8 @@ impl Array {
     /// let b_data: &[i32] = b.as_slice();
     /// // b_data == [-1, -2, 1]
     /// ```
-    #[default_device]
-    pub fn bitwise_invert_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn bitwise_invert(&self) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_bitwise_invert(res, self.as_ptr(), stream.as_ref().as_ptr())
         })
@@ -434,15 +409,15 @@ impl Array {
     /// # Example
     ///
     /// ```rust
-    /// use mlx_rs::{Array, StreamOrDevice};
+    /// use mlx_rs::Array;
     /// let a: Array = false.into();
-    /// let mut b = a.logical_not_device(StreamOrDevice::default()).unwrap();
+    /// let mut b = a.logical_not().unwrap();
     ///
     /// let b_data: &[bool] = b.as_slice();
     /// // b_data == [true]
     /// ```
-    #[default_device]
-    pub fn logical_not_device(&self, stream: impl AsRef<Stream>) -> Result<Array> {
+    pub fn logical_not(&self) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_logical_not(res, self.as_ptr(), stream.as_ref().as_ptr())
         })
@@ -475,15 +450,14 @@ impl Array {
     /// let c_data: &[bool] = c.as_slice();
     /// // c_data == [true]
     /// ```
-    #[default_device]
-    pub fn all_close_device(
+    pub fn all_close(
         &self,
         other: impl AsRef<Array>,
         rtol: impl Into<Option<f64>>,
         atol: impl Into<Option<f64>>,
         equal_nan: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_allclose(
                 res,
@@ -509,15 +483,14 @@ impl Array {
     /// ```
     ///
     /// Unlike [self.array_eq] this function supports [broadcasting](https://swiftpackageindex.com/ml-explore/mlx-swift/main/documentation/mlx/broadcasting).
-    #[default_device]
-    pub fn is_close_device(
+    pub fn is_close(
         &self,
         other: impl AsRef<Array>,
         rtol: impl Into<Option<f64>>,
         atol: impl Into<Option<f64>>,
         equal_nan: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_isclose(
                 res,
@@ -552,13 +525,12 @@ impl Array {
     /// let c = a.array_eq(&b, None);
     /// // c == [true]
     /// ```
-    #[default_device]
-    pub fn array_eq_device(
+    pub fn array_eq(
         &self,
         other: impl AsRef<Array>,
         equal_nan: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_array_equal(
                 res,
@@ -590,13 +562,8 @@ impl Array {
     /// // produces an Array([true, true, true, true]) -- all rows have non-zeros
     /// let all_rows = array.any_axes(&[0], None).unwrap();
     /// ```
-    #[default_device]
-    pub fn any_axes_device(
-        &self,
-        axes: &[i32],
-        keep_dims: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn any_axes(&self, axes: &[i32], keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_any_axes(
                 res,
@@ -610,13 +577,8 @@ impl Array {
     }
 
     /// Similar to [`any_axes`] but defaults to all axes.
-    #[default_device]
-    pub fn any_axis_device(
-        &self,
-        axis: i32,
-        keep_dims: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn any_axis(&self, axis: i32, keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_any_axis(
                 res,
@@ -629,12 +591,8 @@ impl Array {
     }
 
     /// Similar to [`any_axes`] but defaults to all axes.
-    #[default_device]
-    pub fn any_device(
-        &self,
-        keep_dims: impl Into<Option<bool>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn any(&self, keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_any(
                 res,
@@ -647,278 +605,158 @@ impl Array {
 }
 
 /// See [`Array::any`]
-#[generate_macro]
-#[default_device]
-pub fn any_axes_device(
+pub fn any_axes(
     array: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    keep_dims: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    array.as_ref().any_axes_device(axes, keep_dims, stream)
+    array.as_ref().any_axes(axes, keep_dims)
 }
 
 /// See [`Array::any`]
-#[generate_macro]
-#[default_device]
-pub fn any_axis_device(
+pub fn any_axis(
     array: impl AsRef<Array>,
     axis: i32,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    keep_dims: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    array.as_ref().any_axis_device(axis, keep_dims, stream)
+    array.as_ref().any_axis(axis, keep_dims)
 }
 
 /// See [`Array::any`]
-#[generate_macro]
-#[default_device]
-pub fn any_device(
-    array: impl AsRef<Array>,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    array.as_ref().any_device(keep_dims, stream)
+pub fn any(array: impl AsRef<Array>, keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+    array.as_ref().any(keep_dims)
 }
 
 /// See [`Array::logical_and`]
-#[generate_macro]
-#[default_device]
-pub fn logical_and_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().logical_and_device(b, stream)
+pub fn logical_and(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().logical_and(b)
 }
 
 /// See [`Array::logical_or`]
-#[generate_macro]
-#[default_device]
-pub fn logical_or_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().logical_or_device(b, stream)
+pub fn logical_or(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().logical_or(b)
 }
 
 /// See [`Array::logical_not`]
-#[generate_macro]
-#[default_device]
-pub fn logical_not_device(
-    a: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().logical_not_device(stream)
+pub fn logical_not(a: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().logical_not()
 }
 
 /// See [`Array::logical_xor`]
-#[generate_macro]
-#[default_device]
-pub fn logical_xor_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().logical_xor_device(b, stream)
+pub fn logical_xor(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().logical_xor(b)
 }
 
 /// See [`Array::bitwise_and`]
-#[generate_macro]
-#[default_device]
-pub fn bitwise_and_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().bitwise_and_device(b, stream)
+pub fn bitwise_and(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().bitwise_and(b)
 }
 
 /// See [`Array::bitwise_invert`]
-#[generate_macro]
-#[default_device]
-pub fn bitwise_invert_device(
-    a: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().bitwise_invert_device(stream)
+pub fn bitwise_invert(a: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().bitwise_invert()
 }
 
 /// See [`Array::bitwise_or`]
-#[generate_macro]
-#[default_device]
-pub fn bitwise_or_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().bitwise_or_device(b, stream)
+pub fn bitwise_or(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().bitwise_or(b)
 }
 
 /// See [`Array::bitwise_xor`]
-#[generate_macro]
-#[default_device]
-pub fn bitwise_xor_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().bitwise_xor_device(b, stream)
+pub fn bitwise_xor(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().bitwise_xor(b)
 }
 
 /// See [`Array::all_close`]
-#[generate_macro]
-#[default_device]
-pub fn all_close_device(
+pub fn all_close(
     a: impl AsRef<Array>,
     b: impl AsRef<Array>,
-    #[optional] rtol: impl Into<Option<f64>>,
-    #[optional] atol: impl Into<Option<f64>>,
-    #[optional] equal_nan: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    rtol: impl Into<Option<f64>>,
+    atol: impl Into<Option<f64>>,
+    equal_nan: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    a.as_ref()
-        .all_close_device(b, rtol, atol, equal_nan, stream)
+    a.as_ref().all_close(b, rtol, atol, equal_nan)
 }
 
 /// See [`Array::is_close`]
-#[generate_macro]
-#[default_device]
-pub fn is_close_device(
+pub fn is_close(
     a: impl AsRef<Array>,
     b: impl AsRef<Array>,
-    #[optional] rtol: impl Into<Option<f64>>,
-    #[optional] atol: impl Into<Option<f64>>,
-    #[optional] equal_nan: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    rtol: impl Into<Option<f64>>,
+    atol: impl Into<Option<f64>>,
+    equal_nan: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    a.as_ref().is_close_device(b, rtol, atol, equal_nan, stream)
+    a.as_ref().is_close(b, rtol, atol, equal_nan)
 }
 
 /// See [`Array::array_eq`]
-#[generate_macro]
-#[default_device]
-pub fn array_eq_device(
+pub fn array_eq(
     a: impl AsRef<Array>,
     b: impl AsRef<Array>,
-    #[optional] equal_nan: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    equal_nan: impl Into<Option<bool>>,
 ) -> Result<Array> {
-    a.as_ref().array_eq_device(b, equal_nan, stream)
+    a.as_ref().array_eq(b, equal_nan)
 }
 
 /// See [`Array::eq`]
-#[generate_macro]
-#[default_device]
-pub fn eq_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().eq_device(b, stream)
+pub fn eq(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().eq(b)
 }
 
 /// See [`Array::le`]
-#[generate_macro]
-#[default_device]
-pub fn le_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().le_device(b, stream)
+pub fn le(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().le(b)
 }
 
 /// See [`Array::ge`]
-#[generate_macro]
-#[default_device]
-pub fn ge_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().ge_device(b, stream)
+pub fn ge(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().ge(b)
 }
 
 /// See [`Array::ne`]
-#[generate_macro]
-#[default_device]
-pub fn ne_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().ne_device(b, stream)
+pub fn ne(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().ne(b)
 }
 
 /// See [`Array::lt`]
-#[generate_macro]
-#[default_device]
-pub fn lt_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().lt_device(b, stream)
+pub fn lt(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().lt(b)
 }
 
 /// See [`Array::gt`]
-#[generate_macro]
-#[default_device]
-pub fn gt_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().gt_device(b, stream)
+pub fn gt(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().gt(b)
 }
 
 // TODO: check if the functions below could throw an exception.
 
 /// Return a boolean array indicating which elements are NaN.
-#[generate_macro]
-#[default_device]
-pub fn is_nan_device(
-    array: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn is_nan(array: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_isnan(res, array.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
 }
 
 /// Return a boolean array indicating which elements are +/- inifnity.
-#[generate_macro]
-#[default_device]
-pub fn is_inf_device(
-    array: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn is_inf(array: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_isinf(res, array.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
 }
 
 /// Return a boolean array indicating which elements are positive infinity.
-#[generate_macro]
-#[default_device]
-pub fn is_pos_inf_device(
-    array: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn is_pos_inf(array: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_isposinf(res, array.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
 }
 
 /// Return a boolean array indicating which elements are negative infinity.
-#[generate_macro]
-#[default_device]
-pub fn is_neg_inf_device(
-    array: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn is_neg_inf(array: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_isneginf(res, array.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
@@ -936,13 +774,12 @@ pub fn is_neg_inf_device(
 /// - condition: condition array
 /// - a: input selected from where condition is non-zero or `true`
 /// - b: input selected from where condition is zero or `false`
-#[default_device]
-pub fn r#where_device(
+pub fn select(
     condition: impl AsRef<Array>,
     a: impl AsRef<Array>,
     b: impl AsRef<Array>,
-    stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_where(
             res,
@@ -952,18 +789,6 @@ pub fn r#where_device(
             stream.as_ref().as_ptr(),
         )
     })
-}
-
-/// Alias for [`r#where`]
-#[generate_macro]
-#[default_device]
-pub fn which_device(
-    condition: impl AsRef<Array>,
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    r#where_device(condition, a, b, stream)
 }
 
 #[cfg(test)]
@@ -1268,22 +1093,22 @@ mod tests {
     }
 
     #[test]
-    fn test_which() {
+    fn test_select() {
         let condition = Array::from_slice(&[true, false, true], &[3]);
         let a = Array::from_slice(&[1, 2, 3], &[3]);
         let b = Array::from_slice(&[4, 5, 6], &[3]);
-        let c = which(&condition, &a, &b).unwrap();
+        let c = select(&condition, &a, &b).unwrap();
 
         let c_data: &[i32] = c.as_slice();
         assert_eq!(c_data, [1, 5, 3]);
     }
 
     #[test]
-    fn test_which_invalid_broadcast() {
+    fn test_select_invalid_broadcast() {
         let condition = Array::from_slice(&[true, false, true], &[3]);
         let a = Array::from_slice(&[1, 2, 3], &[3]);
         let b = Array::from_slice(&[4, 5, 6, 7], &[4]);
-        let c = which(&condition, &a, &b);
+        let c = select(&condition, &a, &b);
         assert!(c.is_err());
     }
 

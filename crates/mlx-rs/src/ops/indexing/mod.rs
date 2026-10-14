@@ -98,13 +98,11 @@
 
 use std::{borrow::Cow, ops::Bound, rc::Rc};
 
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::error::Result;
-use crate::ops::{maximum_device, minimum_device};
+use crate::ops::{maximum, minimum};
 use crate::utils::guard::Guarded;
 use crate::utils::{IntoOption, VectorArray};
-use crate::{Array, Stream, StreamOrDevice};
+use crate::{Array, Stream};
 
 pub(crate) mod index_impl;
 pub(crate) mod indexmut_impl;
@@ -307,23 +305,13 @@ impl ArrayIndexOp<'_> {
 /// Out of bounds indexing is allowed and wouldn't return an error.
 pub trait TryIndexOp<Idx> {
     /// Try to index the array with the given index.
-    fn try_index_device(&self, i: Idx, stream: impl AsRef<Stream>) -> Result<Array>;
-
-    /// Try to index the array with the given index.
-    fn try_index(&self, i: Idx) -> Result<Array> {
-        self.try_index_device(i, StreamOrDevice::default())
-    }
+    fn try_index(&self, i: Idx) -> Result<Array>;
 }
 
 /// Trait for custom indexing operations.
 ///
 /// This is implemented for all types that implement `TryIndexOp`.
 pub trait IndexOp<Idx>: TryIndexOp<Idx> {
-    /// Index the array with the given index.
-    fn index_device(&self, i: Idx, stream: impl AsRef<Stream>) -> Array {
-        self.try_index_device(i, stream).unwrap()
-    }
-
     /// Index the array with the given index.
     fn index(&self, i: Idx) -> Array {
         self.try_index(i).unwrap()
@@ -335,23 +323,13 @@ impl<T, Idx> IndexOp<Idx> for T where T: TryIndexOp<Idx> {}
 /// Trait for custom mutable indexing operations.
 pub trait TryIndexMutOp<Idx, Val> {
     /// Try to index the array with the given index and set the value.
-    fn try_index_mut_device(&mut self, i: Idx, val: Val, stream: impl AsRef<Stream>) -> Result<()>;
-
-    /// Try to index the array with the given index and set the value.
-    fn try_index_mut(&mut self, i: Idx, val: Val) -> Result<()> {
-        self.try_index_mut_device(i, val, StreamOrDevice::default())
-    }
+    fn try_index_mut(&mut self, i: Idx, val: Val) -> Result<()>;
 }
 
 // TODO: should `Val` impl `AsRef<Array>` or `Into<Array>`?
 
 /// Trait for custom mutable indexing operations.
 pub trait IndexMutOp<Idx, Val>: TryIndexMutOp<Idx, Val> {
-    /// Index the array with the given index and set the value.
-    fn index_mut_device(&mut self, i: Idx, val: Val, stream: impl AsRef<Stream>) {
-        self.try_index_mut_device(i, val, stream).unwrap()
-    }
-
     /// Index the array with the given index and set the value.
     fn index_mut(&mut self, i: Idx, val: Val) {
         self.try_index_mut(i, val).unwrap()
@@ -395,18 +373,7 @@ pub enum UpdateMode {
 /// ```
 pub trait TryIndexUpdateOp<Idx, Val> {
     /// Return a copy of the array with the positions selected by `i` updated with `val`.
-    fn try_index_update_device(
-        &self,
-        i: Idx,
-        val: Val,
-        mode: UpdateMode,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array>;
-
-    /// Return a copy of the array with the positions selected by `i` updated with `val`.
-    fn try_index_update(&self, i: Idx, val: Val, mode: UpdateMode) -> Result<Array> {
-        self.try_index_update_device(i, val, mode, StreamOrDevice::default())
-    }
+    fn try_index_update(&self, i: Idx, val: Val, mode: UpdateMode) -> Result<Array>;
 }
 
 /// Trait for custom indexing operations.
@@ -432,13 +399,8 @@ impl Array {
     ///
     /// - `indices`: The indices to take from the array.
     /// - `axis`: The axis along which to take the elements.
-    #[default_device]
-    pub fn take_axis_device(
-        &self,
-        indices: impl AsRef<Array>,
-        axis: i32,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn take_axis(&self, indices: impl AsRef<Array>, axis: i32) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_take_axis(
                 res,
@@ -455,12 +417,8 @@ impl Array {
     /// # Params
     ///
     /// - `indices`: The indices to take from the array.
-    #[default_device]
-    pub fn take_device(
-        &self,
-        indices: impl AsRef<Array>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn take(&self, indices: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_take(
                 res,
@@ -479,15 +437,14 @@ impl Array {
     ///
     /// - `indices`: The indices to take from the array.
     /// - `axis`: Axis in the input to take the values from.
-    #[default_device]
-    pub fn take_along_axis_device(
+    pub fn take_along_axis(
         &self,
         indices: impl AsRef<Array>,
         axis: impl Into<Option<i32>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         let (input, axis) = match axis.into() {
-            None => (Cow::Owned(self.reshape_device(&[-1], &stream)?), 0),
+            None => (Cow::Owned(self.reshape(&[-1])?), 0),
             Some(ax) => (Cow::Borrowed(self), ax),
         };
 
@@ -510,18 +467,16 @@ impl Array {
     /// - indices: Indices array. These should be broadcastable with the input array excluding the `axis` dimension.
     /// - values: Values array. These should be broadcastable with the indices.
     /// - axis: Axis in the destination to put the values to.
-    /// - stream: stream or device to evaluate on.
-    #[default_device]
-    pub fn put_along_axis_device(
+    pub fn put_along_axis(
         &self,
         indices: impl AsRef<Array>,
         values: impl AsRef<Array>,
         axis: impl Into<Option<i32>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         match axis.into() {
             None => {
-                let input = self.reshape_device(&[-1], &stream)?;
+                let input = self.reshape(&[-1])?;
                 let array = Array::try_from_op(|res| unsafe {
                     mlx_sys::mlx_put_along_axis(
                         res,
@@ -532,7 +487,7 @@ impl Array {
                         stream.as_ref().as_ptr(),
                     )
                 })?;
-                let array = array.reshape_device(self.shape(), &stream)?;
+                let array = array.reshape(self.shape())?;
                 Ok(array)
             }
             Some(ax) => Array::try_from_op(|res| unsafe {
@@ -558,14 +513,12 @@ impl Array {
 /// - `a`: The input array.
 /// - `axis`: Axis to reduce over
 /// - `keep_dims`: Keep reduced axes as singleton dimensions, defaults to False.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn argmax_axis_device(
+pub fn argmax_axis(
     a: impl AsRef<Array>,
     axis: i32,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    keep_dims: impl Into<Option<bool>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let keep_dims = keep_dims.into().unwrap_or(false);
 
     Array::try_from_op(|res| unsafe {
@@ -585,13 +538,8 @@ pub fn argmax_axis_device(
 ///
 /// - `a`: The input array.
 /// - `keep_dims`: Keep reduced axes as singleton dimensions, defaults to False.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn argmax_device(
-    a: impl AsRef<Array>,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argmax(a: impl AsRef<Array>, keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let keep_dims = keep_dims.into().unwrap_or(false);
 
     Array::try_from_op(|res| unsafe {
@@ -613,14 +561,12 @@ pub fn argmax_device(
 /// - `a`: The input array.
 /// - `axis`: Axis to reduce over.
 /// - `keep_dims`: Keep reduced axes as singleton dimensions, defaults to False.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn argmin_axis_device(
+pub fn argmin_axis(
     a: impl AsRef<Array>,
     axis: i32,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
+    keep_dims: impl Into<Option<bool>>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let keep_dims = keep_dims.into().unwrap_or(false);
 
     Array::try_from_op(|res| unsafe {
@@ -640,13 +586,8 @@ pub fn argmin_axis_device(
 ///
 /// - `a`: The input array.
 /// - `keep_dims`: Keep reduced axes as singleton dimensions, defaults to False.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn argmin_device(
-    a: impl AsRef<Array>,
-    #[optional] keep_dims: impl Into<Option<bool>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn argmin(a: impl AsRef<Array>, keep_dims: impl Into<Option<bool>>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let keep_dims = keep_dims.into().unwrap_or(false);
 
     Array::try_from_op(|res| unsafe {
@@ -660,52 +601,32 @@ pub fn argmin_device(
 }
 
 /// See [`Array::take_along_axis`]
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn take_along_axis_device(
+pub fn take_along_axis(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
 ) -> Result<Array> {
-    a.as_ref().take_along_axis_device(indices, axis, stream)
+    a.as_ref().take_along_axis(indices, axis)
 }
 
 /// See [`Array::put_along_axis`]
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn put_along_axis_device(
+pub fn put_along_axis(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     values: impl AsRef<Array>,
-    #[optional] axis: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    axis: impl Into<Option<i32>>,
 ) -> Result<Array> {
-    a.as_ref()
-        .put_along_axis_device(indices, values, axis, stream)
+    a.as_ref().put_along_axis(indices, values, axis)
 }
 
 /// See [`Array::take`]
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn take_axis_device(
-    a: impl AsRef<Array>,
-    indices: impl AsRef<Array>,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().take_axis_device(indices, axis, stream)
+pub fn take_axis(a: impl AsRef<Array>, indices: impl AsRef<Array>, axis: i32) -> Result<Array> {
+    a.as_ref().take_axis(indices, axis)
 }
 
 /// See [`Array::take_all`]
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn take_device(
-    a: impl AsRef<Array>,
-    indices: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().take_device(indices, stream)
+pub fn take(a: impl AsRef<Array>, indices: impl AsRef<Array>) -> Result<Array> {
+    a.as_ref().take(indices)
 }
 
 /// Returns the `k` largest elements from the input along a given axis.
@@ -719,27 +640,16 @@ pub fn take_device(
 /// - `a`: The input array.
 /// - `k`: The number of elements to return.
 /// - `axis`: Axis to sort over. Default to `-1` if not specified.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn topk_axis_device(
-    a: impl AsRef<Array>,
-    k: i32,
-    axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn topk_axis(a: impl AsRef<Array>, k: i32, axis: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_topk_axis(res, a.as_ref().as_ptr(), k, axis, stream.as_ref().as_ptr())
     })
 }
 
 /// Returns the `k` largest elements from the flattened input array.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn topk_device(
-    a: impl AsRef<Array>,
-    k: i32,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn topk(a: impl AsRef<Array>, k: i32) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_topk(res, a.as_ref().as_ptr(), k, stream.as_ref().as_ptr())
     })
@@ -753,15 +663,13 @@ pub fn topk_device(
 /// - `indices`: Indices array specifying positions to scatter into
 /// - `updates`: Values to scatter
 /// - `axis`: The axis along which to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_single_device(
+pub fn scatter_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     updates: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_single(
             res,
@@ -784,15 +692,13 @@ pub fn scatter_single_device(
 /// - `indices`: Indices array specifying positions to scatter into
 /// - `updates`: Values to add
 /// - `axis`: The axis along which to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_add_single_device(
+pub fn scatter_add_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     updates: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_add_single(
             res,
@@ -815,15 +721,13 @@ pub fn scatter_add_single_device(
 /// - `indices`: Indices array specifying positions to scatter into
 /// - `updates`: Values to compare
 /// - `axis`: The axis along which to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_max_single_device(
+pub fn scatter_max_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     updates: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_max_single(
             res,
@@ -846,15 +750,13 @@ pub fn scatter_max_single_device(
 /// - `indices`: Indices array specifying positions to scatter into
 /// - `updates`: Values to compare
 /// - `axis`: The axis along which to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_min_single_device(
+pub fn scatter_min_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     updates: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_min_single(
             res,
@@ -877,15 +779,13 @@ pub fn scatter_min_single_device(
 /// - `indices`: Indices array specifying positions to scatter into
 /// - `updates`: Values to multiply
 /// - `axis`: The axis along which to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_prod_single_device(
+pub fn scatter_prod_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     updates: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_prod_single(
             res,
@@ -927,15 +827,13 @@ pub fn scatter_prod_single_device(
 /// let out = scatter(&a, [&indices, &indices], &updates, &[0, 1]).unwrap();
 /// assert_eq!(out.as_slice::<f32>(), &[1.0, 0.0, 0.0, 2.0]);
 /// ```
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_device<'a>(
+pub fn scatter<'a>(
     a: impl AsRef<Array>,
     indices: impl IntoIterator<Item = &'a Array>,
     updates: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let indices = VectorArray::try_from_iter(indices.into_iter())?;
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter(
@@ -961,15 +859,13 @@ pub fn scatter_device<'a>(
 /// - `indices`: One index array per entry in `axes`
 /// - `updates`: Values to add
 /// - `axes`: The axes to scatter along
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_add_device<'a>(
+pub fn scatter_add<'a>(
     a: impl AsRef<Array>,
     indices: impl IntoIterator<Item = &'a Array>,
     updates: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let indices = VectorArray::try_from_iter(indices.into_iter())?;
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_add(
@@ -994,15 +890,13 @@ pub fn scatter_add_device<'a>(
 /// - `indices`: One index array per entry in `axes`
 /// - `updates`: Values to compare
 /// - `axes`: The axes to scatter along
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_max_device<'a>(
+pub fn scatter_max<'a>(
     a: impl AsRef<Array>,
     indices: impl IntoIterator<Item = &'a Array>,
     updates: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let indices = VectorArray::try_from_iter(indices.into_iter())?;
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_max(
@@ -1027,15 +921,13 @@ pub fn scatter_max_device<'a>(
 /// - `indices`: One index array per entry in `axes`
 /// - `updates`: Values to compare
 /// - `axes`: The axes to scatter along
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_min_device<'a>(
+pub fn scatter_min<'a>(
     a: impl AsRef<Array>,
     indices: impl IntoIterator<Item = &'a Array>,
     updates: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let indices = VectorArray::try_from_iter(indices.into_iter())?;
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_min(
@@ -1060,15 +952,13 @@ pub fn scatter_min_device<'a>(
 /// - `indices`: One index array per entry in `axes`
 /// - `updates`: Values to multiply by
 /// - `axes`: The axes to scatter along
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_prod_device<'a>(
+pub fn scatter_prod<'a>(
     a: impl AsRef<Array>,
     indices: impl IntoIterator<Item = &'a Array>,
     updates: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let indices = VectorArray::try_from_iter(indices.into_iter())?;
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_prod(
@@ -1109,15 +999,13 @@ pub fn scatter_prod_device<'a>(
 /// let out = scatter_add_axis(&a, &indices, &values, 1).unwrap();
 /// assert_eq!(out.as_slice::<f32>(), &[4.0, 1.0, 1.0]);
 /// ```
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn scatter_add_axis_device(
+pub fn scatter_add_axis(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     values: impl AsRef<Array>,
     axis: i32,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_scatter_add_axis(
             res,
@@ -1138,15 +1026,13 @@ pub fn scatter_add_axis_device(
 /// - `indices`: Indices array specifying positions to gather from
 /// - `axis`: The axis along which to gather
 /// - `slice_sizes`: The sizes of the slices to gather
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn gather_single_device(
+pub fn gather_single(
     a: impl AsRef<Array>,
     indices: impl AsRef<Array>,
     axis: i32,
     slice_sizes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_gather_single(
             res,
@@ -1189,17 +1075,14 @@ pub fn gather_single_device(
 /// let out = slice_dynamic(&a, &start, &[0], &[2, 4]).unwrap();
 /// assert_eq!(out.as_slice::<i32>(), &[4, 5, 6, 7, 8, 9, 10, 11]);
 /// ```
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_dynamic_device(
+pub fn slice_dynamic(
     a: impl AsRef<Array>,
     start: impl AsRef<Array>,
     axes: &[i32],
     slice_size: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let a = a.as_ref();
-    let stream = stream.as_ref();
     let shape = a.shape();
 
     let extents: Option<Vec<i32>> = (slice_size.len() == shape.len())
@@ -1210,7 +1093,7 @@ pub fn slice_dynamic_device(
         })
         .flatten();
     let start = match &extents {
-        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents, stream)?,
+        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents)?,
         None => Cow::Borrowed(start.as_ref()),
     };
 
@@ -1257,7 +1140,6 @@ fn clamp_dynamic_start<'a>(
     shape: &[i32],
     axes: &[i32],
     extents: &[i32],
-    stream: &Stream,
 ) -> Result<Cow<'a, Array>> {
     if axes.len() != extents.len() || start.size() != axes.len() || start.ndim() > 1 {
         return Ok(Cow::Borrowed(start));
@@ -1272,15 +1154,11 @@ fn clamp_dynamic_start<'a>(
     }
 
     let bounds = Array::from_slice(&bounds, &[bounds.len() as i32]);
-    let clamped = minimum_device(start, &bounds, stream)?;
-    let clamped = maximum_device(&clamped, Array::from_int(0), stream)?;
+    let clamped = minimum(start, &bounds)?;
+    let clamped = maximum(&clamped, Array::from_int(0))?;
 
     // Keep the dtype MLX sees identical to the caller's; the min/max above promote mixed signs.
-    Ok(Cow::Owned(clamped.as_dtype_device(
-        start.dtype(),
-        None,
-        stream,
-    )?))
+    Ok(Cow::Owned(clamped.as_dtype(start.dtype(), None)?))
 }
 
 /// The per-axis extent that [`slice_update_dynamic`] actually writes.
@@ -1342,16 +1220,14 @@ fn dynamic_update_extents(
 /// let out = slice_update(&src, &update, &[1], &[3], None).unwrap();
 /// assert_eq!(out.as_slice::<f32>(), &[0.0, 1.0, 1.0, 0.0]);
 /// ```
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_device<'a>(
+pub fn slice_update<'a>(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: &[i32],
     stop: &[i32],
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = resolve_strides(start, strides);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update(
@@ -1372,16 +1248,14 @@ pub fn slice_update_device<'a>(
 /// Return a copy of `src` with `update` added into the slice `start..stop`.
 ///
 /// See [`slice_update()`] for the parameters.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_add_device<'a>(
+pub fn slice_update_add<'a>(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: &[i32],
     stop: &[i32],
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = resolve_strides(start, strides);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update_add(
@@ -1403,16 +1277,14 @@ pub fn slice_update_add_device<'a>(
 /// and `update`.
 ///
 /// See [`slice_update()`] for the parameters.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_max_device<'a>(
+pub fn slice_update_max<'a>(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: &[i32],
     stop: &[i32],
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = resolve_strides(start, strides);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update_max(
@@ -1434,16 +1306,14 @@ pub fn slice_update_max_device<'a>(
 /// and `update`.
 ///
 /// See [`slice_update()`] for the parameters.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_min_device<'a>(
+pub fn slice_update_min<'a>(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: &[i32],
     stop: &[i32],
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = resolve_strides(start, strides);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update_min(
@@ -1464,16 +1334,14 @@ pub fn slice_update_min_device<'a>(
 /// Return a copy of `src` with the slice `start..stop` multiplied by `update`.
 ///
 /// See [`slice_update()`] for the parameters.
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_prod_device<'a>(
+pub fn slice_update_prod<'a>(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: &[i32],
     stop: &[i32],
-    #[optional] strides: impl IntoOption<&'a [i32]>,
-    #[optional] stream: impl AsRef<Stream>,
+    strides: impl IntoOption<&'a [i32]>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let strides = resolve_strides(start, strides);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_slice_update_prod(
@@ -1517,23 +1385,20 @@ pub fn slice_update_prod_device<'a>(
 /// let out = slice_update_dynamic(&src, &update, &start, &[0]).unwrap();
 /// assert_eq!(out.as_slice::<f32>(), &[0.0, 0.0, 1.0, 1.0, 0.0, 0.0]);
 /// ```
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn slice_update_dynamic_device(
+pub fn slice_update_dynamic(
     src: impl AsRef<Array>,
     update: impl AsRef<Array>,
     start: impl AsRef<Array>,
     axes: &[i32],
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let src = src.as_ref();
     let update = update.as_ref();
-    let stream = stream.as_ref();
     let shape = src.shape();
 
     let extents = dynamic_update_extents(shape, update.shape(), axes);
     let start = match &extents {
-        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents, stream)?,
+        Some(extents) => clamp_dynamic_start(start.as_ref(), shape, axes, extents)?,
         None => Cow::Borrowed(start.as_ref()),
     };
 
@@ -1557,14 +1422,12 @@ pub fn slice_update_dynamic_device(
 /// - `a`: Input array
 /// - `mask`: Boolean mask array indicating where to scatter
 /// - `src`: Source values to scatter
-#[generate_macro(customize(root = "$crate::ops::indexing"))]
-#[default_device]
-pub fn masked_scatter_device(
+pub fn masked_scatter(
     a: impl AsRef<Array>,
     mask: impl AsRef<Array>,
     src: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_masked_scatter(
             res,

@@ -1,5 +1,5 @@
+use crate::Array;
 use crate::error::Result;
-use crate::{Array, Stream};
 
 use super::indexmut_impl::index_update;
 use super::{ArrayIndex, ArrayIndexOp, TryIndexUpdateOp, UpdateMode};
@@ -8,14 +8,13 @@ impl<'a, Val> TryIndexUpdateOp<&'a [ArrayIndexOp<'a>], Val> for Array
 where
     Val: AsRef<Array>,
 {
-    fn try_index_update_device(
+    fn try_index_update(
         &self,
         i: &'a [ArrayIndexOp<'a>],
         val: Val,
         mode: UpdateMode,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        index_update(self, i, val.as_ref(), mode, stream)
+        index_update(self, i, val.as_ref(), mode)
     }
 }
 
@@ -24,14 +23,8 @@ where
     A: ArrayIndex<'a>,
     Val: AsRef<Array>,
 {
-    fn try_index_update_device(
-        &self,
-        i: A,
-        val: Val,
-        mode: UpdateMode,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
-        index_update(self, &[i.index_op()], val.as_ref(), mode, stream)
+    fn try_index_update(&self, i: A, val: Val, mode: UpdateMode) -> Result<Array> {
+        index_update(self, &[i.index_op()], val.as_ref(), mode)
     }
 }
 
@@ -42,15 +35,14 @@ macro_rules! impl_try_index_update_for_tuple {
             $($index: ArrayIndex<$lifetime>,)+
             Val: AsRef<Array>,
         {
-            fn try_index_update_device(
+            fn try_index_update(
                 &self,
                 i: ($($index,)+),
                 val: Val,
                 mode: UpdateMode,
-                stream: impl AsRef<Stream>,
             ) -> Result<Array> {
                 let operations = [$(i.$field.index_op(),)+];
-                index_update(self, &operations, val.as_ref(), mode, stream)
+                index_update(self, &operations, val.as_ref(), mode)
             }
         }
     };

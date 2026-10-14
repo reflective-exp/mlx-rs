@@ -3,8 +3,8 @@
 use crate::error::{CrossEntropyBuildError, Exception};
 use crate::ops::indexing::take_along_axis;
 use crate::ops::{
-    abs, clip, exp, log, logaddexp, logsumexp_axes, maximum, minimum, multiply, power, sqrt,
-    square, sum_axes, sum_axis, r#where,
+    abs, clip, exp, log, logaddexp, logsumexp_axes, maximum, minimum, multiply, power, select,
+    sqrt, square, sum_axes, sum_axis,
 };
 use crate::{Array, array};
 use mlx_internal_macros::{Buildable, generate_builder};
@@ -525,7 +525,7 @@ impl SmoothL1Loss {
         check_shape(predictions, targets, "predictions", "targets")?;
         let diff = predictions.subtract(targets)?.abs()?;
         let beta = array!(beta);
-        let loss = r#where(
+        let loss = select(
             &diff.lt(&beta)?,
             array!(0.5).multiply(square(&diff)?)?.divide(&beta)?,
             diff.subtract(array!(0.5).multiply(beta)?)?,

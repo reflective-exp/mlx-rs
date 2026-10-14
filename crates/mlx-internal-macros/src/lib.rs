@@ -1,107 +1,12 @@
 extern crate proc_macro;
-use darling::FromMeta;
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::punctuated::Punctuated;
-use syn::{DeriveInput, FnArg, ItemEnum, ItemFn, Pat, parse_macro_input, parse_quote};
+use quote::quote;
+use syn::{DeriveInput, ItemEnum, parse_macro_input};
 
 mod derive_buildable;
 mod derive_builder;
 mod generate_builder;
-mod generate_macro;
 mod shared;
-
-#[derive(Debug, FromMeta)]
-enum DeviceType {
-    Cpu,
-    Gpu,
-}
-
-#[derive(Debug)]
-struct DefaultDeviceInput {
-    device: DeviceType,
-}
-
-impl FromMeta for DefaultDeviceInput {
-    fn from_meta(meta: &syn::Meta) -> darling::Result<Self> {
-        let syn::Meta::NameValue(meta_name_value) = meta else {
-            return Err(darling::Error::unsupported_format(
-                "expected a name-value attribute",
-            ));
-        };
-
-        let ident = meta_name_value.path.get_ident().unwrap();
-        assert_eq!(ident, "device", "expected `device`");
-
-        let device = DeviceType::from_expr(&meta_name_value.value)?;
-
-        Ok(DefaultDeviceInput { device })
-    }
-}
-
-#[doc(hidden)]
-#[proc_macro_attribute]
-pub fn default_device(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = if !attr.is_empty() {
-        let meta = syn::parse_macro_input!(attr as syn::Meta);
-        Some(DefaultDeviceInput::from_meta(&meta).unwrap())
-    } else {
-        None
-    };
-
-    let mut input_fn = parse_macro_input!(item as ItemFn);
-    let original_fn = input_fn.clone();
-
-    // Ensure function name convention
-    if !input_fn.sig.ident.to_string().contains("_device") {
-        panic!("Function name must end with '_device'");
-    }
-    let new_fn_name = format_ident!("{}", &input_fn.sig.ident.to_string().replace("_device", ""));
-    input_fn.sig.ident = new_fn_name;
-
-    // Filter out the `stream` parameter and reconstruct the Punctuated collection
-    let filtered_inputs = input_fn
-        .sig
-        .inputs
-        .iter()
-        .filter(|arg| match arg {
-            FnArg::Typed(pat_typed) => {
-                if let Pat::Ident(pat_ident) = &*pat_typed.pat {
-                    pat_ident.ident != "stream"
-                } else {
-                    true
-                }
-            }
-            _ => true,
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-
-    input_fn.sig.inputs = Punctuated::from_iter(filtered_inputs);
-
-    // Prepend default stream initialization
-    let default_stream_stmt = match input.map(|input| input.device) {
-        Some(DeviceType::Cpu) => parse_quote! {
-            let stream = crate::Stream::thread_local_or_cpu();
-        },
-        Some(DeviceType::Gpu) => parse_quote! {
-            let stream = crate::Stream::thread_local_or_gpu();
-        },
-        None => parse_quote! {
-            let stream = crate::Stream::thread_local_or_default();
-        },
-    };
-    input_fn.block.stmts.insert(0, default_stream_stmt);
-
-    // Combine the original and modified functions into the output
-    let expanded = quote! {
-        #original_fn
-
-        #input_fn
-    };
-
-    TokenStream::from(expanded)
-}
 
 #[doc(hidden)]
 #[proc_macro]
@@ -301,52 +206,4 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let builder = derive_builder::expand_derive_builder(input).unwrap();
     TokenStream::from(builder)
-}
-
-/// Generate a macro that expands to the given function for ergonomic purposes.
-///
-/// See `mlx-rs/mlx-tests/test_generate_macro.rs` for more usage examples.
-///
-/// ```rust,ignore
-/// #![allow(unused_variables)]
-///
-/// use mlx_internal_macros::{default_device, generate_macro};
-/// use mlx_rs::{Stream, StreamOrDevice};
-///
-/// /// Test macro generation.
-/// #[generate_macro(customize(root = "$crate"))] // Default is `$crate::ops`
-/// #[default_device]
-/// fn foo_device(
-///     a: i32, // Mandatory argument
-///     b: i32, // Mandatory argument
-///     #[optional] c: Option<i32>, // Optional argument
-///     #[optional] d: impl Into<Option<i32>>, // Optional argument but impl Trait
-///     #[optional] stream: impl AsRef<Stream>, // stream always optional and placed at the end
-/// ) -> i32 {
-///     a + b + c.unwrap_or(0) + d.into().unwrap_or(0)
-/// }
-///
-/// assert_eq!(foo!(1, 2), 3);
-/// assert_eq!(foo!(1, 2, c = Some(3)), 6);
-/// assert_eq!(foo!(1, 2, d = Some(4)), 7);
-/// assert_eq!(foo!(1, 2, c = Some(3), d = Some(4)), 10);
-///
-/// let stream = Stream::new();
-///
-/// assert_eq!(foo!(1, 2, stream = &stream), 3);
-/// assert_eq!(foo!(1, 2, c = Some(3), stream = &stream), 6);
-/// assert_eq!(foo!(1, 2, d = Some(4), stream = &stream), 7);
-/// assert_eq!(foo!(1, 2, c = Some(3), d = Some(4), stream = &stream), 10);
-/// ```
-#[doc(hidden)]
-#[proc_macro_attribute]
-pub fn generate_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let attr = if !attr.is_empty() {
-        let meta = syn::parse_macro_input!(attr as syn::Meta);
-        Some(meta)
-    } else {
-        None
-    };
-    let item = parse_macro_input!(item as ItemFn);
-    generate_macro::expand_generate_macro(attr, item).unwrap()
 }

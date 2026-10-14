@@ -1,5 +1,3 @@
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::Stream;
 use crate::array::Array;
 use crate::error::Result;
@@ -23,13 +21,8 @@ use crate::utils::guard::Guarded;
 /// let freqs = fftfreq(4, None).unwrap();
 /// assert_eq!(freqs.as_slice::<f32>(), &[0.0, 0.25, -0.5, -0.25]);
 /// ```
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn fftfreq_device(
-    n: i32,
-    #[optional] d: impl Into<Option<f64>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn fftfreq(n: i32, d: impl Into<Option<f64>>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let d = d.into().unwrap_or(1.0);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_fftfreq(res, n, d, stream.as_ref().as_ptr())
@@ -54,13 +47,8 @@ pub fn fftfreq_device(
 /// let freqs = rfftfreq(4, None).unwrap();
 /// assert_eq!(freqs.as_slice::<f32>(), &[0.0, 0.25, 0.5]);
 /// ```
-#[generate_macro(customize(root = "$crate::fft"))]
-#[default_device]
-pub fn rfftfreq_device(
-    n: i32,
-    #[optional] d: impl Into<Option<f64>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn rfftfreq(n: i32, d: impl Into<Option<f64>>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let d = d.into().unwrap_or(1.0);
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_fft_rfftfreq(res, n, d, stream.as_ref().as_ptr())

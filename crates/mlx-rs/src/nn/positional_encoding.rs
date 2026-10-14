@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::error::Exception;
 use crate::module::{Module, Param};
 use crate::ops::indexing::{NewAxis, TryIndexOp};
-use crate::ops::{arange, concatenate_axis, exp, log};
+use crate::ops::{arange, concatenate, exp, log};
 use crate::{Array, Dtype, array};
 use mlx_internal_macros::{Buildable, Builder, generate_builder};
 use mlx_macros::ModuleParameters;
@@ -236,9 +236,9 @@ impl Module<&Array> for Sinpe {
         let siny = y.sin()?;
 
         if self.cosine_first {
-            y = concatenate_axis(&[cosy, siny], -1)?;
+            y = concatenate(&[cosy, siny], -1)?;
         } else {
-            y = concatenate_axis(&[siny, cosy], -1)?;
+            y = concatenate(&[siny, cosy], -1)?;
         }
 
         if self.scale != 1.0 {

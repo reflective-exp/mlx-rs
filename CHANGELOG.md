@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+Breaking: one function per op, streams chosen by scope. Every `foo_device(.., stream)` twin is
+gone, as are the generated op macros (`exp!`, `sum!`, `normal!`, ...) and the internal
+`#[default_device]`/`#[generate_macro]` attributes. Call `foo(..)` and wrap it in
+`with_stream(&stream, || ..)` or `with_device(&device, || ..)` to pick where it runs; ops that
+only run on the CPU (`multivariate_normal`, file loading) still default to it. The `_device`
+indexing trait methods (`try_index_device`, `index_mut_device`, ...), `MetalKernel::apply_device`
+and `GgufFile::load_device` went the same way. `nn::NonLinearity` takes just the array; its
+stream argument was always `Stream::default()`.
+
+Breaking renames, with no aliases. Each changes the signature, so old calls fail to compile
+instead of changing meaning:
+
+- `concatenate_axis(arrays, axis)` is `concatenate(arrays, axis)`; the old flattening
+  `concatenate(arrays)` is `concatenate_flat`.
+- `stack_axis(arrays, axis)` is `stack(arrays, axis)`; the old axis-0 `stack(arrays)` is gone.
+- `split(a, n, axis)` is `split_equal`; `split_sections` / `Array::split_axis` is
+  `split_at_indices`.
+- `r#where` and `which` are `select`.
+
+Breaking: ops with several independent settings take an options struct, and `Axes`
+(`All`/`Axis`/`Axes`, from `i32`, slices or vecs) selects axes for the new ones:
+
+- `trace(a, TraceOptions)`, `logcumsumexp(a, LogCumsumExpOptions)`,
+  `linspace(start, stop, LinspaceOptions)` (now honours `endpoint: false`).
+- `count_nonzero(a, CountNonzeroOptions)` replaces `count_nonzero`/`count_nonzero_axis`. The
+  whole-array form now calls MLX directly, so with `keep_dims` it keeps the input's rank.
+- `contiguous(a, ContiguousOptions)`; `Array::contiguous()` plus `contiguous_with_options`.
+- `linalg::{norm, norm_matrix, norm_l2}` take `NormOptions { axes, keep_dims }`.
+- `fft::{fftn, ifftn, rfftn, irfftn, fft2, ifft2, rfft2, irfft2}` take
+  `FftnOptions { lengths, axes, norm }`; for the 2-D ones `Axes::All` means the last two axes.
+  Lengths must match the selected axes, and with `Axes::All` in an n-D transform there must be
+  one per dimension; mismatches, out-of-range axes and empty real
+  transforms return errors instead of reaching MLX or panicking.
+
 Added:
 
 - `io::GgufFile`: load and save GGUF files with tensors and typed metadata (arrays, strings,

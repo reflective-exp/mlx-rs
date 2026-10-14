@@ -19,10 +19,10 @@
 //! # Basic usage
 //!
 //! ```rust
-//! use mlx_rs::{Array, array, transforms::compile::compile, error::Exception};
+//! use mlx_rs::{Array, array, ops::exp, transforms::compile::compile, error::Exception};
 //!
 //! let fun = |(x, y): (&Array, &Array)| -> Result<Array, Exception> {
-//!    mlx_rs::exp!(x.negative()?)?.add(y)
+//!    exp(x.negative()?)?.add(y)
 //! };
 //!
 //! let x = array!(1.0);
@@ -50,10 +50,10 @@
 //! should typically compile functions that you plan to use more than once.
 //!
 //! ```rust
-//! use mlx_rs::{Array, array, transforms::compile::compile};
+//! use mlx_rs::{Array, array, ops::exp, transforms::compile::compile};
 //!
 //! let fun = |(x, y): (&Array, &Array)| {
-//!    mlx_rs::exp!(x.negative()?)?.add(y)
+//!    exp(x.negative()?)?.add(y)
 //! };
 //!
 //! let x = array!(1.0);
@@ -99,7 +99,7 @@
 //!
 //! let fun = |(x, y): (&Array, &Array)| {
 //!     let z = (x + y) * c;
-//!     mlx_rs::exp!(z)
+//!     mlx_rs::ops::exp(z)
 //! };
 //!
 //! let mut compiled = compile(fun, None);
@@ -121,7 +121,7 @@
 //!
 //! let fun = |state: &mut Vec<Array>, (x, y): (&Array, &Array)| {
 //!     let z = x + y;
-//!     let result = mlx_rs::exp!(&z);
+//!     let result = mlx_rs::ops::exp(&z);
 //!     state.push(z);
 //!     result
 //! };

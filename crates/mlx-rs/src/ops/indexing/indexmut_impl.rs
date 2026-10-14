@@ -5,14 +5,9 @@ use smallvec::{SmallVec, smallvec};
 use crate::constants::DEFAULT_STACK_VEC_LEN;
 use crate::error::Result;
 use crate::ops::indexing::{count_non_new_axis_operations, expand_ellipsis_operations};
-use crate::ops::{
-    add_device, broadcast_arrays_device, broadcast_to_device, maximum_device, minimum_device,
-    multiply_device, reshape_device,
-};
+use crate::ops::{add, broadcast_arrays, broadcast_to, maximum, minimum, multiply, reshape};
 use crate::utils::resolve_index_signed_unchecked;
 use crate::{Array, Stream};
-
-use mlx_internal_macros::default_device;
 
 use super::{ArrayIndex, ArrayIndexOp, Guarded, RangeIndex, TryIndexMutOp, UpdateMode};
 
@@ -44,15 +39,14 @@ impl Array {
     ///
     /// `starts`, `ends`, and `strides` must each have one entry per dimension of
     /// the array.
-    #[default_device]
-    pub fn slice_update_device(
+    pub fn slice_update(
         &self,
         update: &Array,
         starts: &[i32],
         ends: &[i32],
         strides: &[i32],
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_slice_update(
                 res,
@@ -78,31 +72,25 @@ fn slice_update_with_mode(
     ends: &[i32],
     strides: &[i32],
     mode: UpdateMode,
-    stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let update_fn = match mode {
-        UpdateMode::Replace => super::slice_update_device,
-        UpdateMode::Add => super::slice_update_add_device,
-        UpdateMode::Min => super::slice_update_min_device,
-        UpdateMode::Max => super::slice_update_max_device,
-        UpdateMode::Product => super::slice_update_prod_device,
+        UpdateMode::Replace => super::slice_update,
+        UpdateMode::Add => super::slice_update_add,
+        UpdateMode::Min => super::slice_update_min,
+        UpdateMode::Max => super::slice_update_max,
+        UpdateMode::Product => super::slice_update_prod,
     };
-    update_fn(src, update, starts, ends, strides, stream.as_ref())
+    update_fn(src, update, starts, ends, strides)
 }
 
 /// Combine `update`, already broadcast to `src`'s shape, with every element of `src`.
-fn update_whole_array(
-    src: &Array,
-    update: Array,
-    mode: UpdateMode,
-    stream: impl AsRef<Stream>,
-) -> Result<Array> {
+fn update_whole_array(src: &Array, update: Array, mode: UpdateMode) -> Result<Array> {
     match mode {
         UpdateMode::Replace => Ok(update),
-        UpdateMode::Add => add_device(src, update, stream),
-        UpdateMode::Min => minimum_device(src, update, stream),
-        UpdateMode::Max => maximum_device(src, update, stream),
-        UpdateMode::Product => multiply_device(src, update, stream),
+        UpdateMode::Add => add(src, update),
+        UpdateMode::Min => minimum(src, update),
+        UpdateMode::Max => maximum(src, update),
+        UpdateMode::Product => multiply(src, update),
     }
 }
 
@@ -112,7 +100,6 @@ fn update_slice(
     operations: &[ArrayIndexOp],
     update: &Array,
     mode: UpdateMode,
-    stream: impl AsRef<Stream>,
 ) -> Result<Option<Array>> {
     let ndim = src.ndim();
     if ndim == 0 || operations.is_empty() {
@@ -120,7 +107,7 @@ fn update_slice(
     }
 
     // Remove leading singletons dimensions from the update
-    let mut update = remove_leading_singleton_dimensions(update, &stream)?;
+    let mut update = remove_leading_singleton_dimensions(update)?;
 
     // Build slice update params
     let mut starts: SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> = smallvec![0; ndim];
@@ -137,7 +124,7 @@ fn update_slice(
         strides[0] = range_index.stride();
 
         return Ok(Some(slice_update_with_mode(
-            src, &update, &starts, &ends, &strides, mode, &stream,
+            src, &update, &starts, &ends, &strides, mode,
         )?));
     }
 
@@ -152,8 +139,8 @@ fn update_slice(
     // If no non-None indices return the broadcasted update
     let non_new_axis_operation_count = count_non_new_axis_operations(&operations);
     if non_new_axis_operation_count == 0 {
-        let update = broadcast_to_device(&update, src.shape(), &stream)?;
-        return Ok(Some(update_whole_array(src, update, mode, &stream)?));
+        let update = broadcast_to(&update, src.shape())?;
+        return Ok(Some(update_whole_array(src, update, mode)?));
     }
 
     // Process entries
@@ -213,26 +200,23 @@ fn update_slice(
     }
 
     if update.shape() != &update_reshape[..] {
-        update = Cow::Owned(reshape_device(update, &update_reshape, &stream)?);
+        update = Cow::Owned(reshape(update, &update_reshape)?);
     }
 
     Ok(Some(slice_update_with_mode(
-        src, &update, &starts, &ends, &strides, mode, &stream,
+        src, &update, &starts, &ends, &strides, mode,
     )?))
 }
 
 // See `leadingSingletonDimensionsRemoved` in the swift binding
-fn remove_leading_singleton_dimensions(
-    a: &Array,
-    stream: impl AsRef<Stream>,
-) -> Result<Cow<'_, Array>> {
+fn remove_leading_singleton_dimensions(a: &Array) -> Result<Cow<'_, Array>> {
     let shape = a.shape();
     let mut new_shape: Vec<_> = shape.iter().skip_while(|&&dim| dim == 1).cloned().collect();
     if shape != new_shape {
         if new_shape.is_empty() {
             new_shape = vec![1];
         }
-        Ok(Cow::Owned(a.reshape_device(&new_shape, stream)?))
+        Ok(Cow::Owned(a.reshape(&new_shape)?))
     } else {
         Ok(Cow::Borrowed(a))
     }
@@ -249,43 +233,33 @@ fn scatter_args<'a>(
     src: &'a Array,
     operations: &'a [ArrayIndexOp],
     update: &Array,
-    stream: impl AsRef<Stream>,
 ) -> Result<ScatterArgs<'a>> {
     use ArrayIndexOp::*;
 
     if operations.len() == 1 {
         return match &operations[0] {
-            TakeIndex { index } => scatter_args_index(src, *index, update, stream),
-            TakeArray { indices } => {
-                scatter_args_array(src, Cow::Borrowed(indices), update, stream)
-            }
-            TakeArrayRef { indices } => {
-                scatter_args_array(src, Cow::Borrowed(indices), update, stream)
-            }
-            Slice(range_index) => scatter_args_slice(src, range_index, update, stream),
+            TakeIndex { index } => scatter_args_index(src, *index, update),
+            TakeArray { indices } => scatter_args_array(src, Cow::Borrowed(indices), update),
+            TakeArrayRef { indices } => scatter_args_array(src, Cow::Borrowed(indices), update),
+            Slice(range_index) => scatter_args_slice(src, range_index, update),
             ExpandDims => Ok(ScatterArgs {
                 indices: smallvec![],
-                update: broadcast_to_device(update, src.shape(), &stream)?,
+                update: broadcast_to(update, src.shape())?,
                 axes: smallvec![],
             }),
             Ellipsis => panic!("Unable to update array with ellipsis argument"),
         };
     }
 
-    scatter_args_nd(src, operations, update, stream)
+    scatter_args_nd(src, operations, update)
 }
 
-fn scatter_args_index<'a>(
-    src: &'a Array,
-    index: i32,
-    update: &Array,
-    stream: impl AsRef<Stream>,
-) -> Result<ScatterArgs<'a>> {
+fn scatter_args_index<'a>(src: &'a Array, index: i32, update: &Array) -> Result<ScatterArgs<'a>> {
     // mlx_scatter_args_index
 
     // Remove any leading singleton dimensions from the update
     // and then broadcast update to shape of src[0, ...]
-    let update = remove_leading_singleton_dimensions(update, &stream)?;
+    let update = remove_leading_singleton_dimensions(update)?;
 
     let mut shape: SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> = SmallVec::from_slice(src.shape());
     shape[0] = 1;
@@ -295,7 +269,7 @@ fn scatter_args_index<'a>(
             index,
             src.dim(0)
         )))],
-        update: broadcast_to_device(&update, &shape, &stream)?,
+        update: broadcast_to(&update, &shape)?,
         axes: smallvec![0],
     })
 }
@@ -304,12 +278,11 @@ fn scatter_args_array<'a>(
     src: &'a Array,
     a: Cow<'a, Array>,
     update: &Array,
-    stream: impl AsRef<Stream>,
 ) -> Result<ScatterArgs<'a>> {
     // mlx_scatter_args_array
 
     // trim leading singleton dimensions
-    let update = remove_leading_singleton_dimensions(update, &stream)?;
+    let update = remove_leading_singleton_dimensions(update)?;
 
     // The update shape must broadcast with indices.shape + [1] + src.shape[1:]
     let mut update_shape: SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> = a
@@ -318,10 +291,10 @@ fn scatter_args_array<'a>(
         .chain(src.shape().iter().skip(1))
         .cloned()
         .collect();
-    let update = broadcast_to_device(&update, &update_shape, &stream)?;
+    let update = broadcast_to(&update, &update_shape)?;
 
     update_shape.insert(a.ndim(), 1);
-    let update = update.reshape_device(&update_shape, &stream)?;
+    let update = update.reshape(&update_shape)?;
 
     Ok(ScatterArgs {
         indices: smallvec![a],
@@ -334,17 +307,16 @@ fn scatter_args_slice<'a>(
     src: &'a Array,
     range_index: &'a RangeIndex,
     update: &Array,
-    stream: impl AsRef<Stream>,
 ) -> Result<ScatterArgs<'a>> {
     // mlx_scatter_args_slice
 
     // if none slice is requested braodcast the update to the src size and return it
     if range_index.is_full() {
-        let update = remove_leading_singleton_dimensions(update, &stream)?;
+        let update = remove_leading_singleton_dimensions(update)?;
 
         return Ok(ScatterArgs {
             indices: smallvec![],
-            update: broadcast_to_device(&update, src.shape(), &stream)?,
+            update: broadcast_to(&update, src.shape())?,
             axes: smallvec![],
         });
     }
@@ -356,13 +328,13 @@ fn scatter_args_slice<'a>(
 
     // If simple stride
     if stride == 1 {
-        let update = remove_leading_singleton_dimensions(update, &stream)?;
+        let update = remove_leading_singleton_dimensions(update)?;
 
         // Broadcast update to slice size
         let update_broadcast_shape: SmallVec<[i32; DEFAULT_STACK_VEC_LEN]> = (1..end - start)
             .chain(src.shape().iter().skip(1).cloned())
             .collect();
-        let update = broadcast_to_device(&update, &update_broadcast_shape, &stream)?;
+        let update = broadcast_to(&update, &update_broadcast_shape)?;
 
         let indices = Array::from_slice(&[start], &[1]);
         Ok(ScatterArgs {
@@ -375,7 +347,7 @@ fn scatter_args_slice<'a>(
         let a_vals = strided_range_to_vec(start, end, stride);
         let a = Array::from_slice(&a_vals, &[a_vals.len() as i32]);
 
-        scatter_args_array(src, Cow::Owned(a), update, stream)
+        scatter_args_array(src, Cow::Owned(a), update)
     }
 }
 
@@ -383,7 +355,6 @@ fn scatter_args_nd<'a>(
     src: &'a Array,
     operations: &[ArrayIndexOp],
     update: &Array,
-    stream: impl AsRef<Stream>,
 ) -> Result<ScatterArgs<'a>> {
     use ArrayIndexOp::*;
 
@@ -392,14 +363,14 @@ fn scatter_args_nd<'a>(
     let shape = src.shape();
 
     let operations = expand_ellipsis_operations(src.ndim(), operations);
-    let update = remove_leading_singleton_dimensions(update, &stream)?;
+    let update = remove_leading_singleton_dimensions(update)?;
 
     // If no non-newAxis indices return the broadcasted update
     let non_new_axis_operation_count = count_non_new_axis_operations(&operations);
     if non_new_axis_operation_count == 0 {
         return Ok(ScatterArgs {
             indices: smallvec![],
-            update: broadcast_to_device(&update, shape, &stream)?,
+            update: broadcast_to(&update, shape)?,
             axes: smallvec![],
         });
     }
@@ -492,7 +463,7 @@ fn scatter_args_nd<'a>(
                 new_shape[start + j] = $indices.dim(j as i32);
             }
 
-            array_indices.push($indices.reshape_device(&new_shape, &stream)?);
+            array_indices.push($indices.reshape(&new_shape)?);
             array_number = array_number.saturating_add(1);
 
             if !arrays_first && array_number == count_arrays {
@@ -524,7 +495,7 @@ fn scatter_args_nd<'a>(
 
                 // If it's a simple slice, we only need to add the start index
                 if array_number >= count_arrays && count_strided_slices <= 0 && stride == 1 {
-                    let index = Array::from_int(start).reshape_device(&index_shape, &stream)?;
+                    let index = Array::from_int(start).reshape(&index_shape)?;
                     let slice_shape_entry = end - start;
                     slice_shapes.push(slice_shape_entry);
                     array_indices.push(index);
@@ -541,7 +512,7 @@ fn scatter_args_nd<'a>(
                         slice_number
                     };
                     index_shape[location as usize] = index.size() as i32;
-                    array_indices.push(index.reshape_device(&index_shape, &stream)?);
+                    array_indices.push(index.reshape(&index_shape)?);
 
                     slice_number = slice_number.saturating_add(1);
                     count_strided_slices = count_strided_slices.saturating_sub(1);
@@ -564,7 +535,7 @@ fn scatter_args_nd<'a>(
     }
 
     // Broadcast the update to the indices and slices
-    let array_indices = broadcast_arrays_device(&array_indices, &stream)?;
+    let array_indices = broadcast_arrays(&array_indices)?;
     let update_shape_broadcast: Vec<_> = array_indices[0]
         .shape()
         .iter()
@@ -572,7 +543,7 @@ fn scatter_args_nd<'a>(
         .chain(src.shape().iter().skip(non_new_axis_operation_count))
         .cloned()
         .collect();
-    let update = broadcast_to_device(&update, &update_shape_broadcast, &stream)?;
+    let update = broadcast_to(&update, &update_shape_broadcast)?;
 
     // Reshape the update with the size-1 dims for the int and array indices
     let update_reshape: Vec<_> = array_indices[0]
@@ -583,7 +554,7 @@ fn scatter_args_nd<'a>(
         .cloned()
         .collect();
 
-    let update = update.reshape_device(&update_reshape, &stream)?;
+    let update = update.reshape(&update_reshape)?;
 
     let array_indices_len = array_indices.len();
 
@@ -624,16 +595,14 @@ fn scatter_with_mode(
     updates: &Array,
     axes: &[i32],
     mode: UpdateMode,
-    stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     let indices = indices.iter().map(|index| index.as_ref());
-    let stream = stream.as_ref();
     match mode {
-        UpdateMode::Replace => super::scatter_device(a, indices, updates, axes, stream),
-        UpdateMode::Add => super::scatter_add_device(a, indices, updates, axes, stream),
-        UpdateMode::Min => super::scatter_min_device(a, indices, updates, axes, stream),
-        UpdateMode::Max => super::scatter_max_device(a, indices, updates, axes, stream),
-        UpdateMode::Product => super::scatter_prod_device(a, indices, updates, axes, stream),
+        UpdateMode::Replace => super::scatter(a, indices, updates, axes),
+        UpdateMode::Add => super::scatter_add(a, indices, updates, axes),
+        UpdateMode::Min => super::scatter_min(a, indices, updates, axes),
+        UpdateMode::Max => super::scatter_max(a, indices, updates, axes),
+        UpdateMode::Product => super::scatter_prod(a, indices, updates, axes),
     }
 }
 
@@ -643,9 +612,8 @@ pub(super) fn index_update(
     operations: &[ArrayIndexOp],
     update: &Array,
     mode: UpdateMode,
-    stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    if let Some(result) = update_slice(src, operations, update, mode, &stream)? {
+    if let Some(result) = update_slice(src, operations, update, mode)? {
         return Ok(result);
     }
 
@@ -653,22 +621,17 @@ pub(super) fn index_update(
         indices,
         update,
         axes,
-    } = scatter_args(src, operations, update, &stream)?;
+    } = scatter_args(src, operations, update)?;
     if indices.is_empty() {
         // The index selected the whole array, so `update` is already broadcast to its shape.
-        return update_whole_array(src, update, mode, stream);
+        return update_whole_array(src, update, mode);
     }
-    scatter_with_mode(src, &indices, &update, &axes, mode, stream)
+    scatter_with_mode(src, &indices, &update, &axes, mode)
 }
 
 impl Array {
-    fn try_index_mut_device_inner(
-        &mut self,
-        operations: &[ArrayIndexOp],
-        update: &Array,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
-        *self = index_update(self, operations, update, UpdateMode::Replace, stream)?;
+    fn try_index_mut_inner(&mut self, operations: &[ArrayIndexOp], update: &Array) -> Result<()> {
+        *self = index_update(self, operations, update, UpdateMode::Replace)?;
         Ok(())
     }
 }
@@ -677,14 +640,9 @@ impl<'a, Val> TryIndexMutOp<&'a [ArrayIndexOp<'a>], Val> for Array
 where
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: &'a [ArrayIndexOp<'a>],
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: &'a [ArrayIndexOp<'a>], val: Val) -> Result<()> {
         let update = val.as_ref();
-        self.try_index_mut_device_inner(i, update, stream)
+        self.try_index_mut_inner(i, update)
     }
 }
 
@@ -693,10 +651,10 @@ where
     for<'a> A: ArrayIndex<'a>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(&mut self, i: A, val: Val, stream: impl AsRef<Stream>) -> Result<()> {
+    fn try_index_mut(&mut self, i: A, val: Val) -> Result<()> {
         let operations = [i.index_op()];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -705,15 +663,10 @@ where
     A: ArrayIndex<'a>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        (i,): (A,),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, (i,): (A,), val: Val) -> Result<()> {
         let operations = [i.index_op()];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -723,15 +676,10 @@ where
     B: ArrayIndex<'b>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B), val: Val) -> Result<()> {
         let operations = [i.0.index_op(), i.1.index_op()];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -742,15 +690,10 @@ where
     C: ArrayIndex<'c>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C), val: Val) -> Result<()> {
         let operations = [i.0.index_op(), i.1.index_op(), i.2.index_op()];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -762,12 +705,7 @@ where
     D: ArrayIndex<'d>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -775,7 +713,7 @@ where
             i.3.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -788,12 +726,7 @@ where
     E: ArrayIndex<'e>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -802,7 +735,7 @@ where
             i.4.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -816,12 +749,7 @@ where
     F: ArrayIndex<'f>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -831,7 +759,7 @@ where
             i.5.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -847,12 +775,7 @@ where
     G: ArrayIndex<'g>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -863,7 +786,7 @@ where
             i.6.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -880,12 +803,7 @@ where
     H: ArrayIndex<'h>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G, H),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G, H), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -897,7 +815,7 @@ where
             i.7.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -915,12 +833,7 @@ where
     I: ArrayIndex<'i>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G, H, I),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G, H, I), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -933,7 +846,7 @@ where
             i.8.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -952,12 +865,7 @@ where
     J: ArrayIndex<'j>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G, H, I, J),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G, H, I, J), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -971,7 +879,7 @@ where
             i.9.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -991,12 +899,7 @@ where
     K: ArrayIndex<'k>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G, H, I, J, K),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G, H, I, J, K), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -1011,7 +914,7 @@ where
             i.10.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -1032,12 +935,7 @@ where
     L: ArrayIndex<'l>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
-        &mut self,
-        i: (A, B, C, D, E, F, G, H, I, J, K, L),
-        val: Val,
-        stream: impl AsRef<Stream>,
-    ) -> Result<()> {
+    fn try_index_mut(&mut self, i: (A, B, C, D, E, F, G, H, I, J, K, L), val: Val) -> Result<()> {
         let operations = [
             i.0.index_op(),
             i.1.index_op(),
@@ -1053,7 +951,7 @@ where
             i.11.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -1075,11 +973,10 @@ where
     M: ArrayIndex<'m>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
+    fn try_index_mut(
         &mut self,
         i: (A, B, C, D, E, F, G, H, I, J, K, L, M),
         val: Val,
-        stream: impl AsRef<Stream>,
     ) -> Result<()> {
         let operations = [
             i.0.index_op(),
@@ -1097,7 +994,7 @@ where
             i.12.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -1149,11 +1046,10 @@ where
     N: ArrayIndex<'n>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
+    fn try_index_mut(
         &mut self,
         i: (A, B, C, D, E, F, G, H, I, J, K, L, M, N),
         val: Val,
-        stream: impl AsRef<Stream>,
     ) -> Result<()> {
         let operations = [
             i.0.index_op(),
@@ -1172,7 +1068,7 @@ where
             i.13.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -1227,11 +1123,10 @@ where
     O: ArrayIndex<'o>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
+    fn try_index_mut(
         &mut self,
         i: (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O),
         val: Val,
-        stream: impl AsRef<Stream>,
     ) -> Result<()> {
         let operations = [
             i.0.index_op(),
@@ -1251,7 +1146,7 @@ where
             i.14.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 
@@ -1309,11 +1204,10 @@ where
     P: ArrayIndex<'p>,
     Val: AsRef<Array>,
 {
-    fn try_index_mut_device(
+    fn try_index_mut(
         &mut self,
         i: (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P),
         val: Val,
-        stream: impl AsRef<Stream>,
     ) -> Result<()> {
         let operations = [
             i.0.index_op(),
@@ -1334,7 +1228,7 @@ where
             i.15.index_op(),
         ];
         let update = val.as_ref();
-        self.try_index_mut_device_inner(&operations, update, stream)
+        self.try_index_mut_inner(&operations, update)
     }
 }
 

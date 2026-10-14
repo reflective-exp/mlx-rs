@@ -1,29 +1,19 @@
 //! Fast Fourier Transform (FFT) and its inverse (IFFT) for one, two, and `N` dimensions.
 //!
-//! Like all other functions in `mlx-rs`, three variants are provided for each FFT function, plus
-//! each variant has a version that uses the default `StreamOrDevice` or takes a user-specified
-//! `StreamOrDevice`.
+//! Every function returns a `Result` instead of panicking on invalid input. The one-dimensional
+//! transforms take the transform length, axis and normalization as arguments; the two- and
+//! `N`-dimensional transforms take [`FftnOptions`].
 //!
-//! The difference are explained below using `fftn` as an example:
-//!
-//! 1. `fftn_unchecked`/`fftn_device_unchecked`: This function is simply a wrapper around the C API
-//!    and does not perform any checks on the input. It may panic or get an fatal error that cannot
-//!    be caught by the rust runtime if the input is invalid.
-//! 2. `try_fftn`/`try_fftn_device`: This function performs checks on the input and returns a
-//!    `Result` instead of panicking.
-//! 3. `fftn`/`fftn_device`: This function is a wrapper around `try_fftn` and unwraps the result. It
-//!    panics if the input is invalid.
-//!
-//! The functions that contains `device` in their name are meant to be used with a user-specified
-//! `StreamOrDevice`. If you don't care about the stream, you can use the functions without `device`
-//! in their names. Please note that GPU device support is not yet implemented.
+//! Like all `mlx-rs` functions, they run on the default stream; wrap calls in
+//! [`crate::with_stream`] or [`crate::with_device`] to choose another. GPU support is not yet
+//! implemented.
 //!
 //! # Examples
 //!
 //! ## One dimension
 //!
 //! ```rust
-//! use mlx_rs::{Dtype, Array, StreamOrDevice, complex64, fft::*};
+//! use mlx_rs::{Dtype, Array, complex64, fft::*};
 //!
 //! let src = [1.0f32, 2.0, 3.0, 4.0];
 //! let mut array = Array::from_slice(&src[..], &[4]);
@@ -72,12 +62,12 @@
 //! ## Two dimensions
 //!
 //! ```rust
-//! use mlx_rs::{Dtype, Array, StreamOrDevice, complex64, fft::*};
+//! use mlx_rs::{Dtype, Array, complex64, fft::*};
 //!
 //! let src = [1.0f32, 1.0, 1.0, 1.0];
 //! let mut array = Array::from_slice(&src[..], &[2, 2]);
 //!
-//! let mut fft2_result = fft2(&array, None, None, None).unwrap();
+//! let mut fft2_result = fft2(&array, FftnOptions::default()).unwrap();
 //! assert_eq!(fft2_result.dtype(), Dtype::Complex64);
 //! let expected = &[
 //!     complex64::new(4.0, 0.0),
@@ -89,7 +79,7 @@
 //! let fft2_result = fft2_result.contiguous().unwrap();
 //! assert_eq!(fft2_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut ifft2_result = ifft2(&fft2_result, None, None, None).unwrap();
+//! let mut ifft2_result = ifft2(&fft2_result, FftnOptions::default()).unwrap();
 //! assert_eq!(ifft2_result.dtype(), Dtype::Complex64);
 //!
 //! let expected = &[
@@ -100,7 +90,7 @@
 //! ];
 //! assert_eq!(ifft2_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut rfft2_result = rfft2(&array, None, None, None).unwrap();
+//! let mut rfft2_result = rfft2(&array, FftnOptions::default()).unwrap();
 //! assert_eq!(rfft2_result.dtype(), Dtype::Complex64);
 //!
 //! let expected = &[
@@ -112,7 +102,7 @@
 //! let rfft2_result = rfft2_result.contiguous().unwrap();
 //! assert_eq!(rfft2_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut irfft2_result = irfft2(&rfft2_result, None, None, None).unwrap();
+//! let mut irfft2_result = irfft2(&rfft2_result, FftnOptions::default()).unwrap();
 //! assert_eq!(irfft2_result.dtype(), Dtype::Float32);
 //! assert_eq!(irfft2_result.as_slice::<f32>(), &src[..]);
 //!
@@ -124,10 +114,10 @@
 //! ## `N` dimensions
 //!
 //! ```rust
-//! use mlx_rs::{Dtype, Array, StreamOrDevice, complex64, fft::*};
+//! use mlx_rs::{Dtype, Array, complex64, fft::*};
 //!
 //! let mut array = Array::ones::<f32>(&[2, 2, 2]).unwrap();
-//! let mut fftn_result = fftn(&array, None, None, None).unwrap();
+//! let mut fftn_result = fftn(&array, FftnOptions::default()).unwrap();
 //! assert_eq!(fftn_result.dtype(), Dtype::Complex64);
 //!
 //! let mut expected = [complex64::new(0.0, 0.0); 8];
@@ -136,14 +126,14 @@
 //! let fftn_result = fftn_result.contiguous().unwrap();
 //! assert_eq!(fftn_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut ifftn_result = ifftn(&fftn_result, None, None, None).unwrap();
+//! let mut ifftn_result = ifftn(&fftn_result, FftnOptions::default()).unwrap();
 //! assert_eq!(ifftn_result.dtype(), Dtype::Complex64);
 //!
 //! let expected = [complex64::new(1.0, 0.0); 8];
 //! let ifftn_result = ifftn_result.contiguous().unwrap();
 //! assert_eq!(ifftn_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut rfftn_result = rfftn(&array, None, None, None).unwrap();
+//! let mut rfftn_result = rfftn(&array, FftnOptions::default()).unwrap();
 //! assert_eq!(rfftn_result.dtype(), Dtype::Complex64);
 //!
 //! let mut expected = [complex64::new(0.0, 0.0); 8];
@@ -151,7 +141,7 @@
 //! let rfftn_result = rfftn_result.contiguous().unwrap();
 //! assert_eq!(rfftn_result.as_slice::<complex64>(), &expected[..]);
 //!
-//! let mut irfftn_result = irfftn(&rfftn_result, None, None, None).unwrap();
+//! let mut irfftn_result = irfftn(&rfftn_result, FftnOptions::default()).unwrap();
 //! assert_eq!(irfftn_result.dtype(), Dtype::Float32);
 //!
 //! let expected = [1.0; 8];
@@ -165,11 +155,12 @@
 
 mod fftn;
 mod freq;
+mod options;
 mod rfftn;
 mod shift;
 mod utils;
 
-pub use self::{fftn::*, freq::*, rfftn::*, shift::*};
+pub use self::{fftn::*, freq::*, options::FftnOptions, rfftn::*, shift::*};
 
 /// Normalization mode applied to an FFT.
 ///

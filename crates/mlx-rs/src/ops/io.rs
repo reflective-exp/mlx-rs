@@ -3,7 +3,6 @@ use crate::utils::SUCCESS;
 use crate::utils::guard::Guarded;
 use crate::utils::io::SafeTensors;
 use crate::{Array, Stream};
-use mlx_internal_macros::default_device;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::Path;
@@ -24,12 +23,8 @@ impl Array {
     /// # Params
     ///
     /// - path: path of file to load
-    /// - stream: stream or device to evaluate on
-    #[default_device(device = "cpu")]
-    pub fn load_numpy_device(
-        path: impl AsRef<Path>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array, IoError> {
+    pub fn load_numpy(path: impl AsRef<Path>) -> Result<Array, IoError> {
+        let stream = Stream::thread_local_or_cpu();
         let path = path.as_ref();
         if !path.is_file() {
             return Err(IoError::NotFile);
@@ -48,13 +43,9 @@ impl Array {
     /// # Params
     ///
     /// - path: path of file to load
-    /// - stream: stream or device to evaluate on
     ///
-    #[default_device(device = "cpu")]
-    pub fn load_safetensors_device(
-        path: impl AsRef<Path>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<HashMap<String, Array>, IoError> {
+    pub fn load_safetensors(path: impl AsRef<Path>) -> Result<HashMap<String, Array>, IoError> {
+        let stream = Stream::thread_local_or_cpu();
         let safetensors = SafeTensors::load_device(path.as_ref(), stream)?;
         let data = safetensors.data()?;
         Ok(data)
@@ -65,12 +56,10 @@ impl Array {
     /// # Params
     ///
     /// - path: path of file to load
-    /// - stream: stream or device to evaluate on
-    #[default_device(device = "cpu")]
-    pub fn load_safetensors_with_metadata_device(
+    pub fn load_safetensors_with_metadata(
         path: impl AsRef<Path>,
-        stream: impl AsRef<Stream>,
     ) -> Result<SafetensorsWithMetadata, IoError> {
+        let stream = Stream::thread_local_or_cpu();
         let safetensors = SafeTensors::load_device(path.as_ref(), stream)?;
         let data = safetensors.data()?;
         let metadata = safetensors.metadata()?;
@@ -101,7 +90,6 @@ impl Array {
     /// - arrays: arrays to save
     /// - metadata: metadata to save
     /// - path: path of file to save
-    /// - stream: stream or device to evaluate on
     pub fn save_safetensors<'a, I, S, V>(
         arrays: I,
         metadata: impl Into<Option<&'a HashMap<String, String>>>,

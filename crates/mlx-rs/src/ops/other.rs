@@ -1,7 +1,5 @@
 use std::ffi::CString;
 
-use mlx_internal_macros::{default_device, generate_macro};
-
 use crate::error::{Exception, Result};
 use crate::utils::VectorArray;
 use crate::utils::guard::Guarded;
@@ -16,13 +14,8 @@ impl Array {
     /// # Params:
     ///
     /// - `k`: the diagonal to extract or construct
-    /// - `stream`: stream or device to evaluate on
-    #[default_device]
-    pub fn diag_device(
-        &self,
-        k: impl Into<Option<i32>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn diag(&self, k: impl Into<Option<i32>>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_diag(
                 res,
@@ -46,15 +39,13 @@ impl Array {
     /// - `offset`: offset of the diagonal.  Can be positive or negative
     /// - `axis1`: first axis of the 2-D sub-array from which the diagonals should be taken
     /// - `axis2`: second axis of the 2-D sub-array from which the diagonals should be taken
-    /// - `stream`: stream or device to evaluate on
-    #[default_device]
-    pub fn diagonal_device(
+    pub fn diagonal(
         &self,
         offset: impl Into<Option<i32>>,
         axis1: impl Into<Option<i32>>,
         axis2: impl Into<Option<i32>>,
-        stream: impl AsRef<Stream>,
     ) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         Array::try_from_op(|res| unsafe {
             mlx_sys::mlx_diagonal(
                 res,
@@ -74,13 +65,8 @@ impl Array {
     ///
     /// # Params
     /// - scale: scale the output by this factor -- default is `1.0/sqrt(array.dim(-1))`
-    /// - stream: stream to evaluate on.
-    #[default_device]
-    pub fn hadamard_transform_device(
-        &self,
-        scale: impl Into<Option<f32>>,
-        stream: impl AsRef<Stream>,
-    ) -> Result<Array> {
+    pub fn hadamard_transform(&self, scale: impl Into<Option<f32>>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
         let scale = scale.into();
         let scale = mlx_sys::mlx_optional_float {
             value: scale.unwrap_or(0.0),
@@ -94,27 +80,18 @@ impl Array {
 }
 
 /// See [`Array::diag`]
-#[generate_macro]
-#[default_device]
-pub fn diag_device(
-    a: impl AsRef<Array>,
-    #[optional] k: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
-    a.as_ref().diag_device(k, stream)
+pub fn diag(a: impl AsRef<Array>, k: impl Into<Option<i32>>) -> Result<Array> {
+    a.as_ref().diag(k)
 }
 
 /// See [`Array::diagonal`]
-#[generate_macro]
-#[default_device]
-pub fn diagonal_device(
+pub fn diagonal(
     a: impl AsRef<Array>,
-    #[optional] offset: impl Into<Option<i32>>,
-    #[optional] axis1: impl Into<Option<i32>>,
-    #[optional] axis2: impl Into<Option<i32>>,
-    #[optional] stream: impl AsRef<Stream>,
+    offset: impl Into<Option<i32>>,
+    axis1: impl Into<Option<i32>>,
+    axis2: impl Into<Option<i32>>,
 ) -> Result<Array> {
-    a.as_ref().diagonal_device(offset, axis1, axis2, stream)
+    a.as_ref().diagonal(offset, axis1, axis2)
 }
 
 /// Perform the Einstein summation convention on the operands.
@@ -123,14 +100,11 @@ pub fn diagonal_device(
 ///
 /// - subscripts: Einstein summation convention equation
 /// - operands: input arrays
-/// - stream: stream or device to evaluate on
-#[generate_macro]
-#[default_device]
-pub fn einsum_device<'a>(
+pub fn einsum<'a>(
     subscripts: &str,
     operands: impl IntoIterator<Item = &'a Array>,
-    #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     let c_subscripts =
         CString::new(subscripts).map_err(|_| Exception::from("Invalid subscripts"))?;
     let c_operands = VectorArray::try_from_iter(operands.into_iter())?;
@@ -151,14 +125,8 @@ pub fn einsum_device<'a>(
 ///
 /// - `a`: first array
 /// - `b`: second array
-/// - `stream`: stream or device to evaluate on
-#[generate_macro]
-#[default_device]
-pub fn kron_device(
-    a: impl AsRef<Array>,
-    b: impl AsRef<Array>,
-    #[optional] stream: impl AsRef<Stream>,
-) -> Result<Array> {
+pub fn kron(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_kron(
             res,
@@ -188,9 +156,8 @@ pub fn kron_device(
 /// let b = copy(&a).unwrap();
 /// assert_eq!(b.as_slice::<f32>(), &[1.0, 2.0, 3.0]);
 /// ```
-#[generate_macro]
-#[default_device]
-pub fn copy_device(a: impl AsRef<Array>, #[optional] stream: impl AsRef<Stream>) -> Result<Array> {
+pub fn copy(a: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
     Array::try_from_op(|res| unsafe {
         mlx_sys::mlx_copy(res, a.as_ref().as_ptr(), stream.as_ref().as_ptr())
     })
