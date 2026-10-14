@@ -700,7 +700,7 @@ pub fn flip_axes_device(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_flip(
+        mlx_sys::mlx_flip_axes(
             res,
             a.as_ref().as_ptr(),
             axes.as_ptr(),
@@ -857,7 +857,7 @@ pub fn unstack_device(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Vec<Array>> {
     Vec::<Array>::try_from_op(|res| unsafe {
-        mlx_sys::mlx_unstack(res, a.as_ref().as_ptr(), axis, stream.as_ref().as_ptr())
+        mlx_sys::mlx_unstack_axis(res, a.as_ref().as_ptr(), axis, stream.as_ref().as_ptr())
     })
 }
 

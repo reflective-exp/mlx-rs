@@ -147,6 +147,7 @@ use std::hash::{Hash, Hasher};
 
 use super::{Closure, Guarded, VectorArray};
 use crate::Array;
+use crate::utils::SUCCESS;
 
 #[allow(clippy::module_inception)]
 mod compile;
@@ -173,11 +174,27 @@ pub fn disable_compile() {
     }
 }
 
+/// Run `f` with a handle to the calling thread's compile cache, then free the handle.
+///
+/// Failures are dropped: the callers are a `Drop` impl and an infallible cache clear, and an
+/// unresolvable cache has nothing to erase.
+fn with_compile_cache(f: impl FnOnce(mlx_sys::mlx_compile_cache) -> i32) {
+    crate::error::ensure_error_handler();
+    unsafe {
+        let mut cache = mlx_sys::mlx_compile_cache_new();
+        let mut status = mlx_sys::mlx_detail_compile_cache(&mut cache);
+        if status == SUCCESS {
+            status = f(cache);
+        }
+        if mlx_sys::mlx_compile_cache_free(cache) != SUCCESS || status != SUCCESS {
+            let _ = crate::error::get_and_clear_last_mlx_error();
+        }
+    }
+}
+
 /// Clear the memory cache.
 pub fn clear_cache() {
-    unsafe {
-        mlx_sys::mlx_detail_compile_clear_cache();
-    }
+    with_compile_cache(|cache| unsafe { mlx_sys::mlx_detail_compile_clear_cache(cache) });
 }
 
 /// A compiled function that can be called.
@@ -196,10 +213,9 @@ struct CompiledState<F> {
 
 impl<F> Drop for CompiledState<F> {
     fn drop(&mut self) {
-        unsafe {
-            // remove the compiled structure from the back end
-            mlx_sys::mlx_detail_compile_erase(self.id);
-        }
+        // remove the compiled structure from the back end
+        let id = self.id;
+        with_compile_cache(|cache| unsafe { mlx_sys::mlx_detail_compile_erase(cache, id) });
     }
 }
 

@@ -368,10 +368,6 @@ impl Array {
                     res,
                     self.as_ptr(),
                     T::DTYPE.into(),
-                    mlx_sys::mlx_optional_bool {
-                        value: false,
-                        has_value: false,
-                    },
                     Stream::default().as_ptr(),
                 )
             })?;

@@ -514,7 +514,7 @@ impl Array {
         stream: impl AsRef<Stream>,
     ) -> Result<Array> {
         Array::try_from_op(|res| unsafe {
-            mlx_sys::mlx_median(
+            mlx_sys::mlx_median_axes(
                 res,
                 self.as_ptr(),
                 axes.as_ptr(),
@@ -923,7 +923,7 @@ pub fn count_nonzero_axis_device(
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_count_nonzero(
+        mlx_sys::mlx_count_nonzero_axis(
             res,
             array.as_ref().as_ptr(),
             axis,

@@ -1250,7 +1250,7 @@ pub fn trace_device(
     let a = a.as_ref();
     let dtype = dtype.into().unwrap_or_else(|| a.dtype());
     Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_trace(
+        mlx_sys::mlx_trace_axes(
             res,
             a.as_ptr(),
             offset.into().unwrap_or(0),

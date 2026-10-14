@@ -18,12 +18,15 @@ pub fn is_available() -> Result<bool> {
 pub fn metallib_path() -> Result<String> {
     ensure_error_handler();
     unsafe {
-        let mut ptr: *const std::os::raw::c_char = std::ptr::null();
-        let status = mlx_sys::mlx_metal_get_metallib_path(&mut ptr as *mut _);
-        if status != SUCCESS {
-            return Err(last_mlx_error_or("Failed to get metallib path"));
-        }
-        Ok(CStr::from_ptr(ptr).to_string_lossy().into_owned())
+        let mut mlx_str = mlx_sys::mlx_string_new();
+        let result = match mlx_sys::mlx_metal_get_metallib_path(&mut mlx_str as *mut _) {
+            SUCCESS => Ok(CStr::from_ptr(mlx_sys::mlx_string_data(mlx_str))
+                .to_string_lossy()
+                .into_owned()),
+            _ => Err(last_mlx_error_or("Failed to get metallib path")),
+        };
+        mlx_sys::mlx_string_free(mlx_str);
+        result
     }
 }
 

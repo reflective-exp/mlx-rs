@@ -18,7 +18,7 @@ pub(crate) mod guard;
 pub(crate) mod io;
 pub(crate) mod optional;
 
-pub(crate) use optional::{optional_bool, optional_dtype, optional_int};
+pub(crate) use optional::{optional_dtype, optional_int};
 
 thread_local! {
     /// A reusable empty `mlx_array` used as the "absent" sentinel for optional

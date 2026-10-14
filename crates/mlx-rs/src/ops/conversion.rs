@@ -1,8 +1,23 @@
 use mlx_internal_macros::{default_device, generate_macro};
 
 use crate::error::Result;
-use crate::utils::{guard::Guarded, optional_bool};
+use crate::utils::guard::Guarded;
 use crate::{Array, ArrayElement, Dtype, Stream};
+
+/// Cast `a` to `dtype`, honoring the `copy` flag.
+///
+/// `mlx_astype` has no copy argument and a same-dtype cast shares the buffer, so a forced
+/// same-dtype copy uses `mlx_copy`.
+fn astype_with_copy(a: &Array, dtype: Dtype, copy: Option<bool>, stream: &Stream) -> Result<Array> {
+    if copy == Some(true) && a.dtype() == dtype {
+        return Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_copy(res, a.as_ptr(), stream.as_ptr())
+        });
+    }
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_astype(res, a.as_ptr(), dtype.into(), stream.as_ptr())
+    })
+}
 
 impl Array {
     /// Convert an array to FP8 (E4M3) format.
@@ -72,16 +87,7 @@ impl Array {
         copy: impl Into<Option<bool>>,
         stream: impl AsRef<Stream>,
     ) -> Result<Array> {
-        let copy = optional_bool(copy.into());
-        Array::try_from_op(|res| unsafe {
-            mlx_sys::mlx_astype(
-                res,
-                self.as_ptr(),
-                dtype.into(),
-                copy,
-                stream.as_ref().as_ptr(),
-            )
-        })
+        astype_with_copy(self, dtype, copy.into(), stream.as_ref())
     }
 
     /// View the array as a different type.
@@ -151,16 +157,7 @@ pub fn astype_device(
     #[optional] copy: impl Into<Option<bool>>,
     #[optional] stream: impl AsRef<Stream>,
 ) -> Result<Array> {
-    let copy = optional_bool(copy.into());
-    Array::try_from_op(|res| unsafe {
-        mlx_sys::mlx_astype(
-            res,
-            a.as_ref().as_ptr(),
-            dtype.into(),
-            copy,
-            stream.as_ref().as_ptr(),
-        )
-    })
+    astype_with_copy(a.as_ref(), dtype, copy.into(), stream.as_ref())
 }
 
 #[cfg(test)]

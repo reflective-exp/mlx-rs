@@ -170,6 +170,7 @@ pub fn scaled_dot_product_attention_device<'a>(
                 .into()
                 .map(|a| a.as_ptr())
                 .unwrap_or_else(crate::utils::empty_array_ptr),
+            false, // force_fused: MLX picks the fused kernel or the fallback
             stream.as_ref().as_ptr(),
         )
     })

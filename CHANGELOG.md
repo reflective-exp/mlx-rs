@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The mlx-c submodule now tracks upstream `ml-explore/mlx-c` at `c74db530` (MLX 0.32.2) instead
+of a fork. `as_type`/`as_dtype`/`astype` keep their `copy` flag; upstream `mlx_astype` dropped
+it, so a forced same-dtype copy uses `mlx_copy`.
+
 Safe wrappers for further mlx-c entry points that had no mlx-rs binding:
 
 - `cuda::is_available`, and `metal::{is_available, metallib_path, set_metallib_path,
