@@ -76,6 +76,13 @@ impl From<RawException> for IoError {
 /// Error associated with `Array::try_as_slice()`
 #[derive(Debug, PartialEq, Error)]
 pub enum AsSliceError {
+    /// The array is a strided view (e.g. a broadcast or transpose), not row-major, so it cannot
+    /// be borrowed as a flat slice.
+    #[error(
+        "array data is not row-contiguous; call `Array::contiguous()` before borrowing it as a slice"
+    )]
+    NotContiguous,
+
     /// The underlying data pointer is null.
     ///
     /// This is likely because the array has not been evaluated yet.
@@ -143,6 +150,10 @@ cfg_safetensors! {
         /// This is the error type for conversions from `Array` to `safetensors::tensor::TensorView`.
         #[error("The mlx data type {0:?} is not supported.")]
         MlxDtype(crate::Dtype),
+
+        /// The array cannot be borrowed as a contiguous slice.
+        #[error(transparent)]
+        ArraySlice(#[from] AsSliceError),
 
         /// Error casting the data buffer to `&[u8]`.
         #[error(transparent)]

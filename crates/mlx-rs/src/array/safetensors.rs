@@ -41,56 +41,56 @@ impl<'a> TryFrom<&'a Array> for TensorView<'a> {
         let data: &[u8] = unsafe {
             match value.dtype() {
                 Dtype::Bool => {
-                    let data = value.as_slice::<bool>();
+                    let data = value.try_as_slice::<bool>()?;
                     cast_slice(data)
                 },
                 Dtype::Uint8 => {
-                    let data = value.as_slice::<u8>();
+                    let data = value.try_as_slice::<u8>()?;
                     cast_slice(data)
                 },
                 Dtype::Uint16 => {
-                    let data = value.as_slice::<u16>();
+                    let data = value.try_as_slice::<u16>()?;
                     cast_slice(data)
                 },
                 Dtype::Uint32 => {
-                    let data = value.as_slice::<u32>();
+                    let data = value.try_as_slice::<u32>()?;
                     cast_slice(data)
                 },
                 Dtype::Uint64 => {
-                    let data = value.as_slice::<u64>();
+                    let data = value.try_as_slice::<u64>()?;
                     cast_slice(data)
                 },
                 Dtype::Int8 => {
-                    let data = value.as_slice::<i8>();
+                    let data = value.try_as_slice::<i8>()?;
                     cast_slice(data)
                 },
                 Dtype::Int16 => {
-                    let data = value.as_slice::<i16>();
+                    let data = value.try_as_slice::<i16>()?;
                     cast_slice(data)
                 },
                 Dtype::Int32 => {
-                    let data = value.as_slice::<i32>();
+                    let data = value.try_as_slice::<i32>()?;
                     cast_slice(data)
                 },
                 Dtype::Int64 => {
-                    let data = value.as_slice::<i64>();
+                    let data = value.try_as_slice::<i64>()?;
                     cast_slice(data)
                 },
                 Dtype::Float16 => {
-                    let data = value.as_slice::<half::f16>();
+                    let data = value.try_as_slice::<half::f16>()?;
                     let bits: &[u16] = transmute(data);
                     cast_slice(bits)
                 },
                 Dtype::Float32 => {
-                    let data = value.as_slice::<f32>();
+                    let data = value.try_as_slice::<f32>()?;
                     cast_slice(data)
                 },
                 Dtype::Float64 => {
-                    let data = value.as_slice::<f64>();
+                    let data = value.try_as_slice::<f64>()?;
                     cast_slice(data)
                 },
                 Dtype::Bfloat16 => {
-                    let data = value.as_slice::<half::bf16>();
+                    let data = value.try_as_slice::<half::bf16>()?;
                     let bits: &[u16] = transmute(data);
                     cast_slice(bits)
                 },
@@ -107,7 +107,12 @@ impl<'a> TryFrom<&'a Array> for TensorView<'a> {
 mod tests {
     use safetensors::tensor::TensorView;
 
-    use crate::{array, complex64, Array};
+    use crate::{
+        array, complex64,
+        error::{AsSliceError, ConversionError},
+        ops::broadcast_to,
+        Array,
+    };
 
     // Helper macro to test conversion between Array and TensorView
     macro_rules! assert_conversion {
@@ -172,6 +177,15 @@ mod tests {
     fn test_conversion_int64() {
         let arr = array!([[1, 2, 3], [4, 5, 6]]);
         assert_conversion!(&arr, crate::Dtype::Int64);
+    }
+
+    #[test]
+    fn test_conversion_non_contiguous_is_error() {
+        let arr = broadcast_to(array!([1, 2]), &[3, 2]).unwrap();
+        assert!(matches!(
+            TensorView::try_from(&arr),
+            Err(ConversionError::ArraySlice(AsSliceError::NotContiguous))
+        ));
     }
 
     #[test]

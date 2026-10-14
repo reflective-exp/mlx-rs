@@ -85,6 +85,8 @@
 //!     complex64::new(0.0, 0.0),
 //!     complex64::new(0.0, 0.0),
 //! ];
+//! // Multi-axis FFTs can return a strided view; make it contiguous before borrowing a slice.
+//! let fft2_result = fft2_result.contiguous().unwrap();
 //! assert_eq!(fft2_result.as_slice::<complex64>(), &expected[..]);
 //!
 //! let mut ifft2_result = ifft2(&fft2_result, None, None, None).unwrap();
@@ -107,6 +109,7 @@
 //!     complex64::new(0.0, 0.0),
 //!     complex64::new(0.0, 0.0),
 //! ];
+//! let rfft2_result = rfft2_result.contiguous().unwrap();
 //! assert_eq!(rfft2_result.as_slice::<complex64>(), &expected[..]);
 //!
 //! let mut irfft2_result = irfft2(&rfft2_result, None, None, None).unwrap();
@@ -129,12 +132,15 @@
 //!
 //! let mut expected = [complex64::new(0.0, 0.0); 8];
 //! expected[0] = complex64::new(8.0, 0.0);
+//! // Multi-axis FFTs can return a strided view; make it contiguous before borrowing a slice.
+//! let fftn_result = fftn_result.contiguous().unwrap();
 //! assert_eq!(fftn_result.as_slice::<complex64>(), &expected[..]);
 //!
 //! let mut ifftn_result = ifftn(&fftn_result, None, None, None).unwrap();
 //! assert_eq!(ifftn_result.dtype(), Dtype::Complex64);
 //!
 //! let expected = [complex64::new(1.0, 0.0); 8];
+//! let ifftn_result = ifftn_result.contiguous().unwrap();
 //! assert_eq!(ifftn_result.as_slice::<complex64>(), &expected[..]);
 //!
 //! let mut rfftn_result = rfftn(&array, None, None, None).unwrap();
@@ -142,12 +148,14 @@
 //!
 //! let mut expected = [complex64::new(0.0, 0.0); 8];
 //! expected[0] = complex64::new(8.0, 0.0);
+//! let rfftn_result = rfftn_result.contiguous().unwrap();
 //! assert_eq!(rfftn_result.as_slice::<complex64>(), &expected[..]);
 //!
 //! let mut irfftn_result = irfftn(&rfftn_result, None, None, None).unwrap();
 //! assert_eq!(irfftn_result.dtype(), Dtype::Float32);
 //!
 //! let expected = [1.0; 8];
+//! let irfftn_result = irfftn_result.contiguous().unwrap();
 //! assert_eq!(irfftn_result.as_slice::<f32>(), &expected[..]);
 //!
 //! // The original array is not modified

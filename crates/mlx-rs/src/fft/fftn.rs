@@ -294,7 +294,11 @@ mod tests {
         let fft2 = fft2(&array, None, None, None).unwrap();
 
         assert_eq!(fft2.dtype(), Dtype::Complex64);
-        assert_eq!(fft2.as_slice::<complex64>(), FFT2_EXPECTED);
+        // A multi-axis FFT returns a strided (not row-major) view.
+        assert_eq!(
+            fft2.contiguous().unwrap().as_slice::<complex64>(),
+            FFT2_EXPECTED
+        );
 
         let ifft2 = ifft2(&fft2, None, None, None).unwrap();
 
@@ -331,13 +335,17 @@ mod tests {
         let fftn = fftn(&array, None, None, None).unwrap();
 
         assert_eq!(fftn.dtype(), Dtype::Complex64);
-        assert_eq!(fftn.as_slice::<complex64>(), FFTN_EXPECTED);
+        // A multi-axis FFT returns a strided (not row-major) view.
+        assert_eq!(
+            fftn.contiguous().unwrap().as_slice::<complex64>(),
+            FFTN_EXPECTED
+        );
 
         let ifftn = ifftn(&fftn, FFTN_SHAPE, &[0, 1, 2], None).unwrap();
 
         assert_eq!(ifftn.dtype(), Dtype::Complex64);
         assert_eq!(
-            ifftn.as_slice::<complex64>(),
+            ifftn.contiguous().unwrap().as_slice::<complex64>(),
             FFTN_DATA
                 .iter()
                 .map(|&x| complex64::new(x, 0.0))

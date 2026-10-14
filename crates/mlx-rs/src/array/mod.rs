@@ -252,6 +252,9 @@ impl Array {
     /// or out-of-order elements. Operations like `index()` and `transpose_axes()`
     /// create strided views that are NOT contiguous.
     ///
+    /// Strides are only final after evaluation; an unevaluated view reports row-major strides.
+    /// Call [`Array::eval`] first.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -382,8 +385,9 @@ impl Array {
     ///
     /// # Safety
     ///
-    /// This is unsafe because the underlying data ptr is not checked for null or if the desired
-    /// dtype matches the actual dtype of the array.
+    /// This is unsafe because it does not check that the data ptr is non-null, that the desired
+    /// dtype matches the array's dtype, or that the array is row-contiguous (a strided view reads
+    /// the wrong elements or past the end of its buffer).
     ///
     /// # Example
     ///
@@ -410,6 +414,9 @@ impl Array {
 
     /// Returns a slice of the array data returning an error if the dtype does not match the actual dtype.
     ///
+    /// Strided views (broadcasts, transposes, strided slices) return
+    /// [`AsSliceError::NotContiguous`]; materialize them with [`Array::contiguous`] first.
+    ///
     /// # Example
     ///
     /// ```rust
@@ -431,6 +438,12 @@ impl Array {
 
         self.eval()?;
 
+        // The data pointer is the view's raw buffer, so reading `size` elements from a strided
+        // view yields wrong elements or reads past the end. Strides are only final after `eval`.
+        if !self.is_contiguous() {
+            return Err(AsSliceError::NotContiguous);
+        }
+
         unsafe {
             let size = self.size();
             let data = T::array_data(self);
@@ -447,7 +460,8 @@ impl Array {
     ///
     /// # Panics
     ///
-    /// Panics if the array is not evaluated or if the desired dtype does not match the actual dtype
+    /// Panics if the array is not evaluated, if the desired dtype does not match the actual dtype,
+    /// or if the array is not row-contiguous (see [`Array::try_as_slice`])
     ///
     /// # Example
     ///
@@ -468,26 +482,37 @@ impl Array {
     ///
     /// This is named `deep_clone` to avoid confusion with the `Clone` trait.
     pub fn deep_clone(&self) -> Self {
+        // The data pointer is only valid for an evaluated, row-major buffer: evaluate, then
+        // gather strided views into a contiguous copy.
+        self.eval().expect("Failed to evaluate array");
+        let gathered;
+        let source = if self.is_contiguous() {
+            self
+        } else {
+            gathered = self.contiguous().expect("Failed to make array contiguous");
+            gathered.eval().expect("Failed to evaluate array");
+            &gathered
+        };
+        let ptr = source.as_ptr();
+
         unsafe {
             let dtype = self.dtype();
             let shape = self.shape();
             let data = match dtype {
-                Dtype::Bool => mlx_sys::mlx_array_data_bool(self.as_ptr()) as *const c_void,
-                Dtype::Uint8 => mlx_sys::mlx_array_data_uint8(self.as_ptr()) as *const c_void,
-                Dtype::Uint16 => mlx_sys::mlx_array_data_uint16(self.as_ptr()) as *const c_void,
-                Dtype::Uint32 => mlx_sys::mlx_array_data_uint32(self.as_ptr()) as *const c_void,
-                Dtype::Uint64 => mlx_sys::mlx_array_data_uint64(self.as_ptr()) as *const c_void,
-                Dtype::Int8 => mlx_sys::mlx_array_data_int8(self.as_ptr()) as *const c_void,
-                Dtype::Int16 => mlx_sys::mlx_array_data_int16(self.as_ptr()) as *const c_void,
-                Dtype::Int32 => mlx_sys::mlx_array_data_int32(self.as_ptr()) as *const c_void,
-                Dtype::Int64 => mlx_sys::mlx_array_data_int64(self.as_ptr()) as *const c_void,
-                Dtype::Float16 => mlx_sys::mlx_array_data_float16(self.as_ptr()) as *const c_void,
-                Dtype::Float32 => mlx_sys::mlx_array_data_float32(self.as_ptr()) as *const c_void,
-                Dtype::Float64 => mlx_sys::mlx_array_data_float64(self.as_ptr()) as *const c_void,
-                Dtype::Bfloat16 => mlx_sys::mlx_array_data_bfloat16(self.as_ptr()) as *const c_void,
-                Dtype::Complex64 => {
-                    mlx_sys::mlx_array_data_complex64(self.as_ptr()) as *const c_void
-                }
+                Dtype::Bool => mlx_sys::mlx_array_data_bool(ptr) as *const c_void,
+                Dtype::Uint8 => mlx_sys::mlx_array_data_uint8(ptr) as *const c_void,
+                Dtype::Uint16 => mlx_sys::mlx_array_data_uint16(ptr) as *const c_void,
+                Dtype::Uint32 => mlx_sys::mlx_array_data_uint32(ptr) as *const c_void,
+                Dtype::Uint64 => mlx_sys::mlx_array_data_uint64(ptr) as *const c_void,
+                Dtype::Int8 => mlx_sys::mlx_array_data_int8(ptr) as *const c_void,
+                Dtype::Int16 => mlx_sys::mlx_array_data_int16(ptr) as *const c_void,
+                Dtype::Int32 => mlx_sys::mlx_array_data_int32(ptr) as *const c_void,
+                Dtype::Int64 => mlx_sys::mlx_array_data_int64(ptr) as *const c_void,
+                Dtype::Float16 => mlx_sys::mlx_array_data_float16(ptr) as *const c_void,
+                Dtype::Float32 => mlx_sys::mlx_array_data_float32(ptr) as *const c_void,
+                Dtype::Float64 => mlx_sys::mlx_array_data_float64(ptr) as *const c_void,
+                Dtype::Bfloat16 => mlx_sys::mlx_array_data_bfloat16(ptr) as *const c_void,
+                Dtype::Complex64 => mlx_sys::mlx_array_data_complex64(ptr) as *const c_void,
             };
 
             let new_c_array =
@@ -942,6 +967,57 @@ impl<T: FromSliceElement + Copy, const N: usize, const M: usize, const O: usize>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{array, ops::broadcast_to};
+
+    #[test]
+    fn broadcast_view_cannot_be_borrowed_as_slice() {
+        let broadcast = broadcast_to(array!([1, 2]), &[3, 2]).unwrap();
+        assert_eq!(
+            broadcast.try_as_slice::<i32>(),
+            Err(AsSliceError::NotContiguous)
+        );
+    }
+
+    #[test]
+    fn transposed_view_cannot_be_borrowed_as_slice() {
+        let a = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+        assert_eq!(
+            a.t().try_as_slice::<i32>(),
+            Err(AsSliceError::NotContiguous)
+        );
+    }
+
+    #[test]
+    fn contiguous_copy_of_strided_view_can_be_borrowed_as_slice() {
+        let a = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+        let t = a.t().contiguous().unwrap();
+        assert_eq!(t.as_slice::<i32>(), &[1, 4, 2, 5, 3, 6]);
+
+        let broadcast = broadcast_to(array!([1, 2]), &[3, 2]).unwrap();
+        let broadcast = broadcast.contiguous().unwrap();
+        assert_eq!(broadcast.as_slice::<i32>(), &[1, 2, 1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn deep_clone_of_strided_view_copies_logical_elements() {
+        let a = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+        let clone = a.t().deep_clone();
+        assert_eq!(clone.shape(), &[3, 2]);
+        assert_eq!(clone.as_slice::<i32>(), &[1, 4, 2, 5, 3, 6]);
+
+        let broadcast = broadcast_to(array!([1, 2]), &[3, 2]).unwrap();
+        assert_eq!(
+            broadcast.deep_clone().as_slice::<i32>(),
+            &[1, 2, 1, 2, 1, 2]
+        );
+    }
+
+    #[test]
+    fn deep_clone_evaluates_lazy_array() {
+        let a = Array::from_slice(&[1i32, 2, 3], &[3]);
+        let lazy = &a + &a;
+        assert_eq!(lazy.deep_clone().as_slice::<i32>(), &[2, 4, 6]);
+    }
 
     #[test]
     fn new_scalar_array_from_bool() {

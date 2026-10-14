@@ -750,6 +750,8 @@ mod tests {
         assert_eq!(array.shape(), &[2, 3]);
         assert_eq!(array.dtype(), Dtype::Float32);
 
+        // Filling from an array broadcasts it, so the result is a strided view.
+        let array = array.contiguous().unwrap();
         let data: &[f32] = array.as_slice();
         float_eq::float_eq!(*data, [0.0; 6], abs <= [1e-6; 6]);
     }

@@ -330,7 +330,11 @@ mod tests {
         let a = Array::from_slice(RFFT2_DATA, RFFT2_SHAPE);
         let rfft2 = super::rfft2(&a, None, None, None).unwrap();
         assert_eq!(rfft2.dtype(), Dtype::Complex64);
-        assert_eq!(rfft2.as_slice::<complex64>(), RFFT2_EXPECTED);
+        // A multi-axis FFT returns a strided (not row-major) view.
+        assert_eq!(
+            rfft2.contiguous().unwrap().as_slice::<complex64>(),
+            RFFT2_EXPECTED
+        );
 
         let irfft2 = super::irfft2(&rfft2, None, None, None).unwrap();
         assert_eq!(irfft2.dtype(), Dtype::Float32);
@@ -375,11 +379,15 @@ mod tests {
         let a = Array::from_slice(RFFTN_DATA, RFFTN_SHAPE);
         let rfftn = super::rfftn(&a, None, None, None).unwrap();
         assert_eq!(rfftn.dtype(), Dtype::Complex64);
-        assert_eq!(rfftn.as_slice::<complex64>(), RFFTN_EXPECTED);
+        // A multi-axis FFT returns a strided (not row-major) view.
+        assert_eq!(
+            rfftn.contiguous().unwrap().as_slice::<complex64>(),
+            RFFTN_EXPECTED
+        );
 
         let irfftn = super::irfftn(&rfftn, None, None, None).unwrap();
         assert_eq!(irfftn.dtype(), Dtype::Float32);
-        assert_eq!(irfftn.as_slice::<f32>(), RFFTN_DATA);
+        assert_eq!(irfftn.contiguous().unwrap().as_slice::<f32>(), RFFTN_DATA);
     }
 
     #[test]
