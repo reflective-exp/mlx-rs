@@ -86,7 +86,11 @@
 //! In MLX you do not need to worry as much about computing outputs that are
 //! never used. For example:
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use mlx_rs::Array;
+//! # fn cheap_fun(x: &Array) -> Array { x * 2.0 }
+//! # fn expensive_fun(x: &Array) -> Array { x.matmul(x).unwrap() }
+//! # let x = Array::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
 //! fn fun(x: &Array) -> (Array, Array) {
 //!     let a = cheap_fun(x);
 //!     let b = expensive_fun(x);
@@ -94,6 +98,7 @@
 //! }
 //!
 //! let (y, _) = fun(&x);
+//! # y.eval().unwrap();
 //! ```
 //!
 //! Here, we never actually compute the output of `expensive_fun`. Use this
@@ -111,9 +116,19 @@
 //!
 //! This pattern is simple to do in MLX thanks to lazy computation:
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use mlx_rs::{module::ModuleParametersExt, nn::Linear};
+//! # struct Model;
+//! # impl Model {
+//! #     fn new() -> Linear {
+//! #         Linear::new(4, 4).unwrap()
+//! #     }
+//! # }
+//! # let path = std::env::temp_dir().join(format!("mlx-rs-doc-{}.safetensors", std::process::id()));
+//! # Model::new().save_safetensors(&path).unwrap();
 //! let mut model = Model::new();
-//! model.load_safetensors("model.safetensors").unwrap();
+//! model.load_safetensors(&path).unwrap();
+//! # std::fs::remove_file(&path).unwrap();
 //! ```
 //!
 //! ## When to Evaluate
@@ -123,16 +138,18 @@
 //!
 //! For example
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use mlx_rs::array;
 //! let mut a = array!([1, 2, 3, 4]);
 //! let mut b = array!([1.0, 2.0, 3.0, 4.0]);
 //!
 //! for _ in 0..100 {
-//!     a = a + b;
+//!     a = a + &b;
 //!     a.eval()?;
 //!     b = b * 2.0;
 //!     b.eval()?;
 //! }
+//! # Ok::<(), mlx_rs::error::Exception>(())
 //! ```
 //!
 //! This is a bad idea because there is some fixed overhead with each graph
@@ -150,7 +167,18 @@
 //!
 //! Here is a concrete example:
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use mlx_rs::{Array, error::Exception, nn, transforms::eval_params};
+//! # use mlx_rs::module::{Module, ModuleParameters};
+//! # use mlx_rs::optimizers::{Optimizer, Sgd};
+//! # let mut model = nn::Linear::new(2, 1)?;
+//! # let mut optimizer = Sgd::new(0.1_f32);
+//! # let loss = |model: &mut nn::Linear, x: &Array| -> Result<Array, Exception> {
+//! #     model.forward(x)?.square()?.sum(None)
+//! # };
+//! # let mut value_and_grad_fn = nn::value_and_grad(loss);
+//! # let (x1, x2) = (Array::ones::<f32>(&[4, 2])?, Array::zeros::<f32>(&[4, 2])?);
+//! # let dataset = [&x1, &x2];
 //! for batch in dataset {
 //!     // Nothing has been evaluated yet
 //!     let (loss, grad) = value_and_grad_fn(&mut model, batch)?;
@@ -162,6 +190,7 @@
 //!     // run the full gradient computation and optimizer update
 //!     eval_params(model.parameters())?;
 //! }
+//! # Ok::<(), Exception>(())
 //! ```
 //!
 //! An important behavior to be aware of is when the graph will be implicitly
@@ -182,7 +211,11 @@
 //!
 //! **Warning**: Using scalar arrays for control-flow will cause an evaluation.
 //!
-//! ```rust,ignore
+//! ```rust
+//! # use mlx_rs::{Array, array};
+//! # fn first_layer(x: &Array) -> (Array, Array) { (x * 2.0, x.sum(None).unwrap()) }
+//! # fn second_layer_a(h: Array) -> Array { h }
+//! # fn second_layer_b(h: Array) -> Array { -h }
 //! fn fun(x: &Array) -> Array {
 //!     let (h, y) = first_layer(x);
 //!
@@ -192,6 +225,7 @@
 //!         second_layer_b(h)
 //!     }
 //! }
+//! # fun(&array!([0.1f32, 0.2])).eval().unwrap();
 //! ```
 //!
 //! Using arrays for control flow should be done with care. The above example

@@ -92,13 +92,13 @@
 //! Compiled functions are intended to be pure; that is they should not have
 //! side effects. For example:
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! use mlx_rs::{Array, array, transforms::compile::compile};
 //!
-//! let mut c = array!(0.5);
+//! let c = array!(0.5);
 //!
-//! let fun = |(x, y): (&Array, &Array)| {
-//!     let z = (x + y) * c;
+//! let fun = move |(x, y): (&Array, &Array)| {
+//!     let z = (x + y) * &c;
 //!     mlx_rs::ops::exp(z)
 //! };
 //!

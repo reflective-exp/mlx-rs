@@ -23,26 +23,22 @@
 //! argument to compute the gradient with respect to, use
 //! [`grad_with_argnums()`] or [`value_and_grad_with_argnums()`].
 //!
-//! TODO: update the example once https://github.com/oxideai/mlx-rs/pull/218 is merged
-//!
-//! ```rust,ignore
+//! ```rust
 //! use mlx_rs::{Array, error::Result, transforms::grad};
 //!
 //! fn f(x: &Array) -> Result<Array> {
 //!     x.square()
 //! }
 //!
-//! fn calculate_grad(func: impl Fn(&Array) -> Result<Array>, arg: &Array) -> Result<Array> {
-//!     grad(&func, &[0])(arg)
-//! }
+//! let x = Array::from_f32(1.5);
 //!
-//! let x = Array::from(1.5);
-//!
-//! let dfdx = calculate_grad(f, &x).unwrap();
+//! let dfdx = grad(f)(&x)?;
 //! assert_eq!(dfdx.item::<f32>(), 2.0 * 1.5);
 //!
-//! let dfdx2 = calculate_grad(|args| calculate_grad(f, args), &x).unwrap();
-//! assert_eq!(dfdx2.item::<f32>(), 2.0);
+//! // Gradients compose: the gradient of the gradient is the second derivative.
+//! let d2fdx2 = grad(|x: &Array| grad(f)(x))(&x)?;
+//! assert_eq!(d2fdx2.item::<f32>(), 2.0);
+//! # Ok::<(), mlx_rs::error::Exception>(())
 //! ```
 
 use mlx_sys::mlx_closure_value_and_grad;

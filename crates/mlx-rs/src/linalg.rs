@@ -553,15 +553,20 @@ pub fn tri_inv(a: impl AsRef<Array>, upper: Option<bool>) -> Result<Array> {
 ///
 /// To construct the full permuation matrix do:
 ///
-/// ```rust,ignore
+/// ```rust
+/// # use mlx_rs::{Stream, array, assert_array_eq, linalg::lu, with_stream};
+/// # use mlx_rs::ops::indexing::{Ellipsis, IndexOp, NewAxis};
+/// # let a = array!([[3.0f32, 1.0, 2.0], [1.0, 8.0, 6.0], [9.0, 2.0, 5.0]]);
+/// # let (p, l, u) = with_stream(&Stream::cpu(), || lu(&a)).unwrap();
 /// // python
 /// // P = mx.put_along_axis(mx.zeros_like(L), p[..., None], mx.array(1.0), axis=-1)
-/// let p = mlx_rs::ops::put_along_axis(
-///     mlx_rs::ops::zeros_like(&l),
+/// let p = mlx_rs::ops::indexing::put_along_axis(
+///     mlx_rs::ops::zeros_like(&l).unwrap(),
 ///     p.index((Ellipsis, NewAxis)),
 ///     array!(1.0),
 ///     -1,
 /// ).unwrap();
+/// # assert_array_eq!(p.matmul(&l).unwrap().matmul(&u).unwrap(), a, 1e-5);
 /// ```
 ///
 /// # Params

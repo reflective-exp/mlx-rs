@@ -1263,14 +1263,14 @@ pub fn matmul(a: impl AsRef<Array>, b: impl AsRef<Array>) -> Result<Array> {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```rust
 /// use mlx_rs::{Array, ops::segmented_mm};
 ///
 /// let a = Array::ones::<f32>(&[10, 100]).unwrap();
 /// let b = Array::ones::<f32>(&[100, 10]).unwrap();
 /// let segments = Array::from_slice(&[0u32, 50, 50, 100], &[2, 2]);
-/// let result = segmented_mm(&a, &b, &segments, None).unwrap();
-/// // result has shape [2, 10, 10]
+/// let result = segmented_mm(&a, &b, &segments).unwrap();
+/// assert_eq!(result.shape(), &[2, 10, 10]);
 /// ```
 pub fn segmented_mm(
     a: impl AsRef<Array>,
