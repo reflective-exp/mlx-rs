@@ -315,6 +315,30 @@ pub fn zeros_like(input: impl AsRef<Array>) -> Result<Array> {
     zeros_dtype(shape, dtype)
 }
 
+/// An array of zeros with the shape of the input and the given dtype.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, Dtype, ops::zeros_like_dtype};
+///
+/// let a = Array::from_slice(&[1i32, 2, 3], &[3]);
+/// let z = zeros_like_dtype(&a, Dtype::Float16).unwrap();
+/// assert_eq!(z.shape(), [3]);
+/// assert_eq!(z.dtype(), Dtype::Float16);
+/// ```
+pub fn zeros_like_dtype(input: impl AsRef<Array>, dtype: Dtype) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_zeros_like_dtype(
+            res,
+            input.as_ref().as_ptr(),
+            dtype.into(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 /// Similar to [`Array::zeros`] but with a specified dtype.
 pub fn zeros_dtype(shape: &[i32], dtype: Dtype) -> Result<Array> {
     let stream = Stream::thread_local_or_default();
@@ -340,6 +364,30 @@ pub fn ones_like(input: impl AsRef<Array>) -> Result<Array> {
     let shape = a.shape();
     let dtype = a.dtype();
     ones_dtype(shape, dtype)
+}
+
+/// An array of ones with the shape of the input and the given dtype.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, Dtype, ops::ones_like_dtype};
+///
+/// let a = Array::from_slice(&[1i32, 2, 3], &[3]);
+/// let o = ones_like_dtype(&a, Dtype::Float16).unwrap();
+/// assert_eq!(o.shape(), [3]);
+/// assert_eq!(o.dtype(), Dtype::Float16);
+/// ```
+pub fn ones_like_dtype(input: impl AsRef<Array>, dtype: Dtype) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_ones_like_dtype(
+            res,
+            input.as_ref().as_ptr(),
+            dtype.into(),
+            stream.as_ref().as_ptr(),
+        )
+    })
 }
 
 /// An array filled with the given value, with the same shape as the input.
@@ -630,6 +678,26 @@ mod tests {
 
         let data: &[f16] = array.as_slice();
         assert_eq!(data, &[f16::from_f32(1.0); 6]);
+    }
+
+    #[test]
+    fn test_zeros_like_dtype() {
+        let a = Array::from_slice(&[1i32, 2, 3, 4, 5, 6], &[2, 3]);
+        let z = zeros_like_dtype(&a, Dtype::Float32).unwrap();
+        assert_eq!(z.shape(), &[2, 3]);
+        assert_eq!(z.dtype(), Dtype::Float32);
+        let data: &[f32] = z.as_slice();
+        assert_eq!(data, &[0.0; 6]);
+    }
+
+    #[test]
+    fn test_ones_like_dtype() {
+        let a = Array::from_slice(&[1.5f32, 2.5, 3.5], &[3]);
+        let o = ones_like_dtype(&a, Dtype::Float16).unwrap();
+        assert_eq!(o.shape(), &[3]);
+        assert_eq!(o.dtype(), Dtype::Float16);
+        let data: &[f16] = o.as_slice();
+        assert_eq!(data, &[f16::from_f32(1.0); 3]);
     }
 
     #[test]

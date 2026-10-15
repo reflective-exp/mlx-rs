@@ -233,6 +233,39 @@ pub fn layer_norm<'a>(
     })
 }
 
+/// Fused cross entropy with class indices as targets.
+///
+/// Computes `logsumexp(logits, -1) - take_along_axis(logits, targets, -1)` in one kernel. The
+/// result is always `float32`, whatever the dtype of `logits`.
+///
+/// # Params
+///
+/// - logits: unnormalized scores with the classes on the last axis. Must be floating point.
+/// - targets: integer class indices with the shape of `logits` without its last axis.
+///   Probability targets are not supported; use [`crate::losses::CrossEntropy`] for those.
+///
+/// # Example
+///
+/// ```rust
+/// use mlx_rs::{Array, fast::cross_entropy};
+///
+/// let logits = Array::from_slice(&[2.0f32, 0.0, 0.0, 0.0, 2.0, 0.0], &[2, 3]);
+/// let targets = Array::from_slice(&[0i32, 1], &[2]);
+/// let loss = cross_entropy(&logits, &targets).unwrap();
+/// assert_eq!(loss.shape(), [2]);
+/// ```
+pub fn cross_entropy(logits: impl AsRef<Array>, targets: impl AsRef<Array>) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
+    Array::try_from_op(|res| unsafe {
+        mlx_sys::mlx_fast_cross_entropy(
+            res,
+            logits.as_ref().as_ptr(),
+            targets.as_ref().as_ptr(),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
 fn cstring(s: &str) -> Result<CString> {
     CString::new(s).map_err(|_| Exception::custom("string contains an interior nul byte"))
 }
@@ -704,6 +737,80 @@ mod tests {
             4.655_846,
             abs <= 0.093_116_924
         );
+    }
+
+    fn cross_entropy_ref(logits: &Array, targets: &Array) -> Result<Array> {
+        let score = logits
+            .take_along_axis(targets.expand_dims(-1)?, -1)?
+            .squeeze_axes(&[-1])?;
+        let logits = logits.as_dtype(Dtype::Float32, None)?;
+        logits
+            .logsumexp_axis(-1, None)?
+            .subtract(score.as_dtype(Dtype::Float32, None)?)
+    }
+
+    // Test adapted from Python test `test_fast.py/test_cross_entropy`
+    #[test]
+    fn test_cross_entropy() {
+        crate::random::seed(0).unwrap();
+        let tolerances = [
+            (Dtype::Float32, 1e-5),
+            (Dtype::Float16, 3e-2),
+            (Dtype::Bfloat16, 3e-1),
+        ];
+        for v in [7, 128, 255, 1000, 4096] {
+            for (dtype, tol) in tolerances {
+                let logits = (normal::<f32>(&[4, 7, v], None, 3.0, None).unwrap() * 2.0)
+                    .as_dtype(dtype, None)
+                    .unwrap();
+                let targets = crate::random::randint::<_, i32>(0, v, &[4, 7][..], None).unwrap();
+
+                let expected = cross_entropy_ref(&logits, &targets).unwrap();
+                let out = cross_entropy(&logits, &targets).unwrap();
+                assert_eq!(out.dtype(), Dtype::Float32);
+                assert_eq!(out.shape(), targets.shape());
+                let max_diff = (&out - &expected)
+                    .abs()
+                    .unwrap()
+                    .max(None)
+                    .unwrap()
+                    .item::<f32>();
+                assert!(max_diff < tol, "V={v} {dtype:?}: max difference {max_diff}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_cross_entropy_shape_checks() {
+        let logits = normal::<f32>(&[4, 16], None, None, None).unwrap();
+        assert!(cross_entropy(&logits, Array::zeros::<i32>(&[5]).unwrap()).is_err());
+        // Probability targets are not supported by the fused op.
+        assert!(cross_entropy(&logits, Array::zeros::<i32>(&[4, 16]).unwrap()).is_err());
+        assert!(cross_entropy(&logits, Array::zeros::<f32>(&[4]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn test_cross_entropy_grad() {
+        crate::random::seed(1).unwrap();
+        for v in [7, 128, 1000] {
+            let logits = normal::<f32>(&[4, 7, v], None, 2.0, None).unwrap();
+            let targets = crate::random::randint::<_, i32>(0, v, &[4, 7][..], None).unwrap();
+
+            let t = targets.clone();
+            let g1 = crate::transforms::grad(move |x: &Array| -> Result<Array> {
+                cross_entropy_ref(x, &t)?.mean(None)
+            })(&logits)
+            .unwrap();
+            let t = targets.clone();
+            let g2 = crate::transforms::grad(move |x: &Array| -> Result<Array> {
+                cross_entropy(x, &t)?.mean(None)
+            })(&logits)
+            .unwrap();
+
+            assert_eq!(g2.shape(), logits.shape());
+            let max_diff = (&g1 - &g2).abs().unwrap().max(None).unwrap().item::<f32>();
+            assert!(max_diff < 1e-6, "V={v}: max difference {max_diff}");
+        }
     }
 
     #[test]

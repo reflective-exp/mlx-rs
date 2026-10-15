@@ -9,7 +9,7 @@ const DEFAULT_GROUP_SIZE: i32 = 64;
 const DEFAULT_BITS: i32 = 4;
 
 /// The quantization scheme used by [`quantize`], [`dequantize`], [`quantized_matmul`],
-/// [`gather_qmm`], and [`qqmm`].
+/// [`gather_qmm`], [`qqmm`] and [`gather_qqmm`].
 ///
 /// See the [MLX
 /// documentation](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.quantize.html)
@@ -269,44 +269,64 @@ pub fn gather_qmm<'b, 'lhs, 'rhs>(
     }
 }
 
+/// Quantization settings for [`qqmm`] and [`gather_qqmm`].
+///
+/// `group_size` and `bits` default to what `mode` requires (16 and 4 for `nvfp4`, 32 and 8 for
+/// `mxfp8`). Global scales apply to `nvfp4` only and must be given together.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct QqmmOptions<'a> {
+    /// The quantization group size.
+    pub group_size: Option<i32>,
+
+    /// The number of bits per element.
+    pub bits: Option<i32>,
+
+    /// The quantization mode. Defaults to [`QuantizationMode::Nvfp4`].
+    pub mode: Option<QuantizationMode>,
+
+    /// Global scale used to quantize `x`.
+    pub global_scale_x: Option<&'a Array>,
+
+    /// Global scale used to quantize `w`.
+    pub global_scale_w: Option<&'a Array>,
+}
+
+impl QqmmOptions<'_> {
+    // MLX picks mode-specific defaults when `has_value` is false, so the fallback value is unused.
+    fn group_size(&self) -> mlx_sys::mlx_optional_int {
+        optional_int(self.group_size, 0)
+    }
+
+    fn bits(&self) -> mlx_sys::mlx_optional_int {
+        optional_int(self.bits, 0)
+    }
+
+    fn mode(&self) -> &'static CStr {
+        self.mode.unwrap_or(QuantizationMode::Nvfp4).into()
+    }
+}
+
 /// Quantized matrix multiplication with quantization of both inputs.
 ///
-/// Performs matrix multiplication where `x` is dynamically quantized and `w` is pre-quantized.
-/// This function supports `nvfp4` and `mxfp8` quantization modes.
+/// Computes `x @ w.T`, quantizing `x` on the fly, and `w` too when `w_scales` is `None`.
+/// Supports the `nvfp4` and `mxfp8` modes.
 ///
-/// Note: This function is only supported on GPU with the CUDA backend (Linux with NVIDIA GPU).
-/// It is not available on macOS.
+/// GPU only (Metal or CUDA).
 ///
 /// # Params
 ///
 /// - `x`: Input matrix to be dynamically quantized
-/// - `w`: Pre-quantized weight matrix
-/// - `w_scales`: Optional scales for the quantized weights (required if `w` is already quantized)
-/// - `group_size`: The quantization group size (default depends on mode: 16 for nvfp4, 32 for mxfp8)
-/// - `bits`: The number of bits per element (default depends on mode: 4 for nvfp4, 8 for mxfp8)
-/// - `mode`: Quantization mode - either [`QuantizationMode::Nvfp4`] or [`QuantizationMode::Mxfp8`]
-///   (default: `Nvfp4`)
-#[cfg(not(target_os = "macos"))]
+/// - `w`: Weight matrix, quantized or not
+/// - `w_scales`: Scales for `w` if it is already quantized
+/// - `options`: See [`QqmmOptions`]
 pub fn qqmm<'a>(
     x: impl AsRef<Array>,
     w: impl AsRef<Array>,
     w_scales: impl Into<Option<&'a Array>>,
-    group_size: impl Into<Option<i32>>,
-    bits: impl Into<Option<i32>>,
-    mode: impl Into<Option<QuantizationMode>>,
+    options: QqmmOptions<'_>,
 ) -> Result<Array> {
     let stream = Stream::thread_local_or_default();
-    let mode = mode.into().unwrap_or(QuantizationMode::Nvfp4);
-
-    // Defaults depend on mode
-    let (default_group_size, default_bits) = match mode {
-        QuantizationMode::Mxfp8 => (32, 8),
-        _ => (16, 4), // nvfp4 defaults
-    };
-
-    let group_size = optional_int(group_size.into(), default_group_size);
-    let bits = optional_int(bits.into(), default_bits);
-    let mode: &CStr = mode.into();
+    let mode = options.mode();
 
     <Array as Guarded>::try_from_op(|res| unsafe {
         mlx_sys::mlx_qqmm(
@@ -317,9 +337,78 @@ pub fn qqmm<'a>(
                 .into()
                 .map(|a| a.as_ptr())
                 .unwrap_or_else(crate::utils::empty_array_ptr),
-            group_size,
-            bits,
+            options.group_size(),
+            options.bits(),
             mode.as_ptr(),
+            options
+                .global_scale_x
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            options
+                .global_scale_w
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            stream.as_ref().as_ptr(),
+        )
+    })
+}
+
+/// [`qqmm`] on matrices gathered from the batch dimensions, like
+/// [`gather_mm`](crate::ops::gather_mm).
+///
+/// GPU only (Metal or CUDA).
+///
+/// # Params
+///
+/// - `x`: Input array to be dynamically quantized
+/// - `w`: Weight array, quantized or not
+/// - `w_scales`: Scales for `w` if it is already quantized
+/// - `lhs_indices`: Indices into the batch dimensions of `x`. Defaults to all of them.
+/// - `rhs_indices`: Indices into the batch dimensions of `w`. Defaults to all of them.
+/// - `sorted_indices`: Whether `rhs_indices` is sorted (default: false)
+/// - `options`: See [`QqmmOptions`]
+pub fn gather_qqmm<'a>(
+    x: impl AsRef<Array>,
+    w: impl AsRef<Array>,
+    w_scales: impl Into<Option<&'a Array>>,
+    lhs_indices: impl Into<Option<&'a Array>>,
+    rhs_indices: impl Into<Option<&'a Array>>,
+    sorted_indices: impl Into<Option<bool>>,
+    options: QqmmOptions<'_>,
+) -> Result<Array> {
+    let stream = Stream::thread_local_or_default();
+    let mode = options.mode();
+    let sorted = sorted_indices.into().unwrap_or(false);
+
+    <Array as Guarded>::try_from_op(|res| unsafe {
+        mlx_sys::mlx_gather_qqmm(
+            res,
+            x.as_ref().as_ptr(),
+            w.as_ref().as_ptr(),
+            w_scales
+                .into()
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            lhs_indices
+                .into()
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            rhs_indices
+                .into()
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            options.group_size(),
+            options.bits(),
+            mode.as_ptr(),
+            options
+                .global_scale_x
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            options
+                .global_scale_w
+                .map(|a| a.as_ptr())
+                .unwrap_or_else(crate::utils::empty_array_ptr),
+            sorted,
             stream.as_ref().as_ptr(),
         )
     })
@@ -508,5 +597,77 @@ mod tests {
             c1.all_close(&c2, 1e-4, 1e-4, None).unwrap().item::<bool>(),
             "gather_qmm test case 2 failed"
         );
+    }
+
+    // `quantize` cannot return the two-array fp formats yet, so these tests let MLX quantize
+    // `w` on the fly rather than following the Python tests.
+    #[test]
+    fn test_qqmm_approximates_matmul() {
+        use super::{QqmmOptions, qqmm};
+
+        random::seed(0).unwrap();
+        let x = random::normal::<f32>(&[32, 128], None, None, None).unwrap();
+        let w = random::normal::<f32>(&[64, 128], None, None, None).unwrap();
+        let expected = x.matmul(w.swap_axes(-1, -2).unwrap()).unwrap();
+
+        for mode in [QuantizationMode::Nvfp4, QuantizationMode::Mxfp8] {
+            let options = QqmmOptions {
+                mode: Some(mode),
+                ..Default::default()
+            };
+            let y = qqmm(&x, &w, None, options).unwrap();
+            assert_eq!(y.shape(), expected.shape());
+
+            let err = (&y - &expected).abs().unwrap().mean(None).unwrap();
+            let scale = expected.abs().unwrap().mean(None).unwrap();
+            let rel = err.item::<f32>() / scale.item::<f32>();
+            assert!(rel < 0.25, "{mode:?}: relative error {rel}");
+        }
+    }
+
+    #[test]
+    fn test_gather_qqmm_matches_qqmm() {
+        use super::{QqmmOptions, gather_qqmm, qqmm};
+        use crate::ops::{indexing::IndexOp, stack};
+
+        random::seed(0).unwrap();
+        let (m, n, k) = (32, 64, 128);
+        let x = random::normal::<f32>(&[5, m, k], None, None, None).unwrap();
+        let w = random::normal::<f32>(&[3, n, k], None, None, None).unwrap();
+        let lhs = [0u32, 2];
+        let rhs = [2u32, 1];
+        let lhs_indices = Array::from_slice(&lhs, &[2]);
+        let rhs_indices = Array::from_slice(&rhs, &[2]);
+
+        for mode in [QuantizationMode::Nvfp4, QuantizationMode::Mxfp8] {
+            let options = QqmmOptions {
+                mode: Some(mode),
+                ..Default::default()
+            };
+            let y = gather_qqmm(&x, &w, None, &lhs_indices, &rhs_indices, None, options).unwrap();
+            assert_eq!(y.shape(), [2, m, n]);
+
+            let expected: Vec<Array> = lhs
+                .iter()
+                .zip(rhs)
+                .map(|(&l, r)| qqmm(x.index(l as i32), w.index(r as i32), None, options).unwrap())
+                .collect();
+            let expected = stack(&expected, 0).unwrap();
+            assert!(
+                y.all_close(&expected, 1e-3, 1e-3, None)
+                    .unwrap()
+                    .item::<bool>(),
+                "{mode:?}: gather_qqmm differs from qqmm"
+            );
+        }
+    }
+
+    #[test]
+    fn test_qqmm_rejects_batched_inputs() {
+        use super::{QqmmOptions, qqmm};
+
+        let x = random::normal::<f32>(&[32, 128], None, None, None).unwrap();
+        let w = random::normal::<f32>(&[2, 64, 128], None, None, None).unwrap();
+        assert!(qqmm(&x, &w, None, QqmmOptions::default()).is_err());
     }
 }

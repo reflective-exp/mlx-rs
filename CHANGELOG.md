@@ -36,8 +36,15 @@ Breaking: ops with several independent settings take an options struct, and `Axe
   one per dimension; mismatches, out-of-range axes and empty real
   transforms return errors instead of reaching MLX or panicking.
 
+Breaking: `qqmm(x, w, w_scales, QqmmOptions)` takes `group_size`, `bits`, `mode` and the new
+`global_scale_x`/`global_scale_w` in an options struct. It now builds on macOS too, since MLX
+0.32.2 runs it on Metal.
+
 Added:
 
+- `fast::cross_entropy`: MLX's fused cross entropy with integer class targets.
+- `ops::gather_qqmm`: `qqmm` on matrices gathered from the batch dimensions.
+- `ops::zeros_like_dtype` and `ops::ones_like_dtype`.
 - `io::GgufFile`: load and save GGUF files with tensors and typed metadata (arrays, strings,
   string lists). Q4_0, Q4_1 and Q8_0 tensors load as quantized triplets. `mlx-sys` now links
   MLX's `gguflib`.
