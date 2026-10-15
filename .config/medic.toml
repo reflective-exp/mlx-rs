@@ -11,6 +11,7 @@ checks = [
 [test]
 checks = [
   {name = "rust: test!", shell = "cargo nextest run --color always", verbose = true},
+  {name = "rust: doctests", shell = "cargo test --workspace --doc --color always", verbose = true},
   {name = "Check for warnings", shell = "cargo check --color always"},
 ]
 
